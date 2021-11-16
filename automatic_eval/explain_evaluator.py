@@ -85,14 +85,15 @@ class VerificationNetwork(nn.Module):
         scores = self.decoder(**selected_inputs)
         return scores, selected_inputs
 
-    def backward(self, x, y):
-        # loss_term.shape == [N,]
-        ce_loss = self.loss(x, y)
+    def calc_loss(self, x, y):
+        ce_loss = self.loss(x, y)  # [N, ]
         reg_loss = (self.reg_strengths[0] * length_regularizer(self.score_cache) +
                     self.reg_strengths[1] * continuity_regularizer(self.score_cache))
         loss_term = ce_loss + reg_loss
         loss_term = loss_term.mean()
+        return loss_term
 
+    def backward(self, loss_term):
         # decoder backward
         loss_term.backward(retain_graph=True)
 
