@@ -1,28 +1,76 @@
+import torch
+from sklearn.metrics import accuracy_score, classification_report
 from torch import optim
+from tqdm import tqdm
 
 
-def evaluate(dataloader, model, args):
+@torch.no_grad()
+def evaluate(dataloader, model, device):
+    eval_running_loss = 0
+    all_pred = []
+    all_gt = []
+
+    model.eval()
     for batch in dataloader:
-        inputs, label = batch
-        logits, _ = model(**inputs)
+        batch = {k: v.to(device) for k, v in batch.items()}
+        label = batch['label']
+        batch.pop('label')
+        logits, _ = model(**batch)
         loss = model.calc_loss(logits, label)
+        eval_running_loss += loss.item()
+        pred = logits.max(-1)[1]
 
-    return loss_summary
+        all_pred.append(pred)
+        all_gt.append(label)
+
+    all_pred = torch.cat(all_pred, dim=0).cpu().numpy()
+    all_gt = torch.cat(all_gt, dim=0).cpu().numpy()
+
+    accuracy = accuracy_score(all_gt, all_pred)
+    eval_loss = eval_running_loss / len(dataloader)
+    report = classification_report(
+        all_gt, all_pred, target_names=['neutral', 'entailment', 'contradiction'])
+
+    return eval_loss, accuracy, report
 
 
-def train(dataloaders, model, args):
+def train(dataloaders, model, args, device):
     train_loader, valid_loader, test_loader = dataloaders
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    for i in range(args.epochs):
-        for batch in train_loader:
-            inputs, label = batch
-            logits, _ = model(**inputs)
+    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+
+    val_best_acc = -1
+    for epoch in range(args.epochs):
+        running_loss = 0
+        global_step = 0
+        model.train()
+        pbar = tqdm(train_loader)
+        for batch in pbar:
+            # print(batch)
+            batch = {k: v.to(device) for k, v in batch.items()}
+            label = batch['label']
+            batch.pop('label')
+            logits, _ = model(**batch)
 
             optimizer.zero_grad()
             loss = model.calc_loss(logits, label)
             model.backward(loss)
             optimizer.step()
 
+            running_loss += loss.item()
+            global_step += 1
+            pbar.set_postfix({'train loss': running_loss / global_step})
+            if global_step % 100 == 0:
+                scheduler.step()
+
         # evaluation
-        valid_loss_summary = evaluate(valid_loader, model, args)
-        test_loss_summary = evaluate(test_loader, model, args)
+        valid_loss, valid_acc, val_report = evaluate(valid_loader, model, device)
+        test_loss, test_acc, test_report = evaluate(test_loader, model, device)
+
+        print(f'valid loss: {valid_loss}, test loss: {test_loss}')
+        print('Validation', val_report)
+        print('test', test_report)
+
+        if valid_acc > val_best_acc:
+            val_best_acc = valid_acc
+            torch.save(model.state_dict(), 'models/veri_net.pt')

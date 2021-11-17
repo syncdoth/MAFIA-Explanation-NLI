@@ -16,7 +16,12 @@ def main():
     parser.add_argument('--lr', type=float, default=5e-5, required=False)
     parser.add_argument('--model_name',
                         type=str,
-                        default='bert-base-cased',
+                        default='bert-base-uncased',
+                        required=False)
+    parser.add_argument('--max_length', type=int, default=64, required=False)
+    parser.add_argument('--data_root',
+                        type=str,
+                        default='data/e-SNLI/dataset',
                         required=False)
     args = parser.parse_args()
 
@@ -27,7 +32,7 @@ def main():
 
     train_loader, valid_loader, test_loader = get_dataloaders(tokenizer, args)
 
-    train((train_loader, valid_loader, test_loader), model, args)
+    train((train_loader, valid_loader, test_loader), model, args, device)
 
 
 if __name__ == '__main__':

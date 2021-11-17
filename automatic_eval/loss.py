@@ -1,7 +1,4 @@
 import torch
-from torch.nn import CrossEntropyLoss
-
-loss = CrossEntropyLoss()
 
 
 def length_regularizer(z):

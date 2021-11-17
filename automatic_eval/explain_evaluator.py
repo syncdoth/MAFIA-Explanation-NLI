@@ -3,6 +3,7 @@ from torch import nn
 from transformers import AutoModel, AutoModelForSequenceClassification
 
 from loss import length_regularizer, continuity_regularizer
+from utils import freeze, unfreeze
 
 
 class Encoder(nn.Module):
@@ -48,11 +49,14 @@ class VerificationNetwork(nn.Module):
         super().__init__()
         self.encoder = Encoder(model_name)
         self.decoder = Decoder(model_name, mask_id=mask_id)
-        self.mask_threshold = mask_threshold
+        # self.mask_threshold = mask_threshold
+        self.mask_id = mask_id
 
         self.score_cache = None
+        self.z_cache = None
 
         self.loss = nn.CrossEntropyLoss(reduction='none')
+        self.z_loss = nn.BCELoss(reduction='none')
         self.reg_strengths = reg_strengths
         self.relevance_threshold = relevance_threshold
 
@@ -75,8 +79,11 @@ class VerificationNetwork(nn.Module):
 
     def forward(self, input_ids, attention_mask, token_type_ids, token_only=False):
         selection_score = self.encoder(input_ids, attention_mask, token_type_ids)
-        selection_mask = selection_score >= self.threshold
+        # selection_mask = selection_score >= self.mask_threshold
+        selection_mask = torch.bernoulli(selection_score)
         self.score_cache = selection_score
+        self.z_cache = selection_mask
+        self.z_cache.retain_grad()
         selected_inputs = self.select_inputs(input_ids, attention_mask, token_type_ids,
                                              selection_mask)
         if token_only:
@@ -87,8 +94,8 @@ class VerificationNetwork(nn.Module):
 
     def calc_loss(self, x, y):
         ce_loss = self.loss(x, y)  # [N, ]
-        reg_loss = (self.reg_strengths[0] * length_regularizer(self.score_cache) +
-                    self.reg_strengths[1] * continuity_regularizer(self.score_cache))
+        reg_loss = (self.reg_strengths[0] * length_regularizer(self.z_cache) +
+                    self.reg_strengths[1] * continuity_regularizer(self.z_cache))
         loss_term = ce_loss + reg_loss
         loss_term = loss_term.mean()
         return loss_term
@@ -98,9 +105,14 @@ class VerificationNetwork(nn.Module):
         loss_term.backward(retain_graph=True)
 
         # encoer backward
-        log_scores = torch.log(self.score_cache)  # [N, T]
-        encoder_loss = (log_scores * loss_term).sum(-1).mean(0)
-        encoder_loss.backward()
+        # log_scores = torch.log(self.score_cache)  # [N, T]
+        encoder_loss = (
+            loss_term *
+            self.z_loss(self.score_cache, self.z_cache.detach())).sum(-1).mean(0)
+        freeze(self.decoder)
+        encoder_loss.backward(retain_graph=True)
+        self.score_cache.backward(self.z_cache.grad)
+        unfreeze(self.decoder)
 
     def infer(self, **inputs):
         """
