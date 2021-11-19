@@ -31,18 +31,20 @@ def evaluate(dataloader, model, device):
     report = classification_report(
         all_gt, all_pred, target_names=['neutral', 'entailment', 'contradiction'])
 
+    model.train()
     return eval_loss, accuracy, report
 
 
 def train(dataloaders, model, args, device):
     train_loader, valid_loader, test_loader = dataloaders
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lrdecay)
 
     val_best_acc = -1
+    global_step = 0
     for epoch in range(args.epochs):
+        epoch_step = 0
         running_loss = 0
-        global_step = 0
         model.train()
         pbar = tqdm(train_loader)
         for batch in pbar:
@@ -59,8 +61,9 @@ def train(dataloaders, model, args, device):
 
             running_loss += loss.item()
             global_step += 1
-            pbar.set_postfix({'train loss': running_loss / global_step})
-            if global_step % 100 == 0:
+            epoch_step += 1
+            pbar.set_postfix({'train loss': running_loss / epoch_step})
+            if global_step % args.decaystep == 0:
                 scheduler.step()
 
         # evaluation
