@@ -49,7 +49,7 @@ class VerificationNetwork(nn.Module):
         super().__init__()
         self.encoder = Encoder(model_name)
         self.decoder = Decoder(model_name, mask_id=mask_id)
-        # self.mask_threshold = mask_threshold
+        self.mask_threshold = mask_threshold
         self.mask_id = mask_id
 
         self.score_cache = None
@@ -70,7 +70,7 @@ class VerificationNetwork(nn.Module):
         input_ids = torch.where((selection_mask == 0) & (attention_mask == 1),
                                 self.mask_id, input_ids)
         # mask the [MASK] tokens from attention.
-        attention_mask = attention_mask * selection_mask
+        attention_mask = (attention_mask * selection_mask).long()
         return {
             'input_ids': input_ids,
             'attention_mask': attention_mask,
@@ -79,11 +79,14 @@ class VerificationNetwork(nn.Module):
 
     def forward(self, input_ids, attention_mask, token_type_ids, token_only=False):
         selection_score = self.encoder(input_ids, attention_mask, token_type_ids)
-        # selection_mask = selection_score >= self.mask_threshold
-        selection_mask = torch.bernoulli(selection_score)
+        if self.training:
+            selection_mask = torch.bernoulli(selection_score)
+        else:
+            selection_mask = (selection_score >= self.mask_threshold).float()
         self.score_cache = selection_score
         self.z_cache = selection_mask
-        self.z_cache.retain_grad()
+        if self.training:
+            self.z_cache.retain_grad()
         selected_inputs = self.select_inputs(input_ids, attention_mask, token_type_ids,
                                              selection_mask)
         if token_only:
@@ -105,7 +108,6 @@ class VerificationNetwork(nn.Module):
         loss_term.backward(retain_graph=True)
 
         # encoer backward
-        # log_scores = torch.log(self.score_cache)  # [N, T]
         encoder_loss = (
             loss_term *
             self.z_loss(self.score_cache, self.z_cache.detach())).sum(-1).mean(0)
