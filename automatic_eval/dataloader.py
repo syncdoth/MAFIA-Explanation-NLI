@@ -32,6 +32,9 @@ class NLIDataset(Dataset):
             df1 = pd.read_csv(csv_file_name + '_1.csv')
             df2 = pd.read_csv(csv_file_name + '_2.csv')
             self.df = pd.concat([df1, df2])
+            if args.train_length > 0:
+                n_samples = args.train_length * args.batch_size
+                self.df = self.df.sample(n_samples)
         else:
             self.df = pd.read_csv(csv_file_name + '.csv')
 
