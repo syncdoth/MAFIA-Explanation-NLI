@@ -116,6 +116,21 @@ class VerificationNetwork(nn.Module):
         self.score_cache.backward(self.z_cache.grad)
         unfreeze(self.decoder)
 
+    def check_handshake(self, input_ids, attention_mask, token_type_ids):
+        """
+        return binary mask of size [N,] indicating which batch do not have
+        handshake
+        """
+        selection_score = self.encoder(input_ids, attention_mask, token_type_ids)
+        selection_mask = selection_score >= self.mask_threshold
+        selected_inputs = self.select_inputs(input_ids, attention_mask, token_type_ids,
+                                             selection_mask)
+
+        s_selection_score = self.encoder(**selected_inputs)
+        s_selection_mask = s_selection_score >= self.mask_threshold
+
+        return (selection_mask == s_selection_mask).all(dim=1)
+
     def infer(self, **inputs):
         """
         return: [N, T, 3].
