@@ -36,6 +36,10 @@ class Explainer:
             baseline = np.zeros(data_xformer.num_features).astype(bool)
         return input, baseline
 
+    def reset(self):
+        self.inter_sets = None
+        self.main_effects = None
+
     def verbose_iterable(self, iterable):
         if self.verbose:
             from tqdm import tqdm
@@ -143,22 +147,42 @@ class Archipelago(Explainer):
         get_pairwise_effects=True,
         single_context=False,
         weights=[0.5, 0.5],
+        use_embedding=False,
     ):
         """
         Detects interactions and sorts them
         Optional: gets archipelago main effects and/or pairwise effects from function reuse
         "Effects" are archattribute scores
         """
+        if self.data_xformer is not None and use_embedding:
+            _, input_emb = self.model(**{
+                k: np.expand_dims(v, 0) for k, v in self.data_xformer.input.items()
+            },
+                                      return_embedding=True)
+            _, base_emb = self.model(**self.data_xformer.process_batch_ids(
+                [self.data_xformer.baseline_ids]),
+                                     return_embedding=True)
+            input_emb, base_emb = input_emb[0], base_emb[0]  # remove batch dim: bs=1
+        else:
+            input_emb, base_emb = None, None
+
         search_a = self.search_feature_sets(
             self.baseline,
             self.input,
+            context_embedding=base_emb,
+            insertion_target_embedding=input_emb,
             get_main_effects=get_main_effects,
             get_pairwise_effects=get_pairwise_effects,
         )
         inter_a = search_a["interactions"]
 
         # notice that input and baseline have swapped places in the arg list
-        search_b = self.search_feature_sets(self.input, self.baseline)
+        search_b = self.search_feature_sets(
+            self.input,
+            self.baseline,
+            context_embedding=input_emb,
+            insertion_target_embedding=base_emb,
+        )
         inter_b = search_b["interactions"]
 
         inter_strengths = {}
@@ -176,9 +200,10 @@ class Archipelago(Explainer):
                 output[key] = search_a[key]
         return output
 
-    def explain(self, top_k=None, separate_effects=False):
+    def explain(self, top_k=None, separate_effects=False, use_embedding=False):
         if (self.inter_sets is None) or (self.main_effects is None):
-            detection_dict = self.archdetect(get_pairwise_effects=False)
+            detection_dict = self.archdetect(get_pairwise_effects=False,
+                                             use_embedding=use_embedding)
             inter_strengths = detection_dict["interactions"]
             self.main_effects = detection_dict["main_effects"]
             self.inter_sets, _ = zip(*inter_strengths)
@@ -215,6 +240,8 @@ class Archipelago(Explainer):
         self,
         context,
         insertion_target,
+        context_embedding=None,
+        insertion_target_embedding=None,
         get_interactions=True,
         get_main_effects=False,
         get_pairwise_effects=False,
@@ -249,8 +276,18 @@ class Archipelago(Explainer):
             for i, j in pair_indices:
 
                 # interaction detection
-                ell_i = np.abs(context[i].item() - insertion_target[i].item())
-                ell_j = np.abs(context[j].item() - insertion_target[j].item())
+                if context_embedding is not None and insertion_target_embedding is not None:
+                    ell_i = np.linalg.norm(context_embedding[i] -
+                                           insertion_target_embedding[i])
+                    ell_j = np.linalg.norm(context_embedding[j] -
+                                           insertion_target_embedding[j])
+                    if ell_i * ell_j == 0:
+                        # This means that it is a special token:
+                        # the baseline and the input shares the special tokens.
+                        continue
+                else:
+                    ell_i = np.abs(context[i].item() - insertion_target[i].item())
+                    ell_j = np.abs(context[j].item() - insertion_target[j].item())
                 inter_scores[(i, j)] = (1 / (ell_i * ell_j) *
                                         (context_score - idv_scores[(i,)] -
                                          idv_scores[(j,)] + pair_scores[(i, j)]))
