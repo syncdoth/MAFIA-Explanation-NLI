@@ -1,4 +1,5 @@
 import numpy as np
+from itertools import chain
 
 
 class Explainer:
@@ -13,6 +14,10 @@ class Explainer:
         batch_size=20,
         verbose=False,
     ):
+        """
+        self.input : boolean array of all 1
+        self.baseline: boolean array of all 0
+        """
 
         input, baseline = self.arg_checks(input, baseline, data_xformer)
 
@@ -35,10 +40,6 @@ class Explainer:
             input = np.ones(data_xformer.num_features).astype(bool)
             baseline = np.zeros(data_xformer.num_features).astype(bool)
         return input, baseline
-
-    def reset(self):
-        self.inter_sets = None
-        self.main_effects = None
 
     def verbose_iterable(self, iterable):
         if self.verbose:
@@ -75,6 +76,7 @@ class Explainer:
                 data_batch.append(new_instance)
 
             if include_context and b == 0:
+                # include context as the last item of the first batch
                 if self.data_xformer is not None:
                     data_batch.append(self.data_xformer(context))
                 else:
@@ -103,27 +105,24 @@ class Archipelago(Explainer):
         data_xformer=None,
         output_indices=0,
         batch_size=20,
-        interactive=False,
         verbose=False,
     ):
-        Explainer.__init__(
+        super().__init__(
             self,
             model,
-            input,
-            baseline,
-            data_xformer,
-            output_indices,
-            batch_size,
-            verbose,
+            input=input,
+            baseline=baseline,
+            data_xformer=data_xformer,
+            output_indices=output_indices,
+            batch_size=batch_size,
+            verbose=verbose,
         )
         self.inter_sets = None
         self.main_effects = None
-        self.interactive = interactive
-        self.interactive_explanations = None
-        self.max_interactive_attribution_magnitude = None
 
-        if self.interactive:
-            self.cache_interactive_explanations()
+    def reset(self):
+        self.inter_sets = None
+        self.main_effects = None
 
     def archattribute(self, set_indices):
         """
@@ -192,7 +191,9 @@ class Archipelago(Explainer):
             else:
                 inter_strengths[pair] = (weights[1] * inter_a[pair]**2 +
                                          weights[0] * inter_b[pair]**2)
-        sorted_scores = sorted(inter_strengths.items(), key=lambda kv: -kv[1])
+        sorted_scores = sorted(inter_strengths.items(),
+                               key=lambda kv: kv[1],
+                               reverse=True)
 
         output = {"interactions": sorted_scores}
         for key in search_a:
@@ -292,8 +293,8 @@ class Archipelago(Explainer):
                                         (context_score - idv_scores[(i,)] -
                                          idv_scores[(j,)] + pair_scores[(i, j)]))
 
-                if (get_pairwise_effects
-                   ):  # leverage existing function calls to compute pairwise effects
+                if get_pairwise_effects:
+                    # leverage existing function calls to compute pairwise effects
                     pairwise_effects[(i, j)] = pair_scores[(i, j)] - context_score
 
             output["interactions"] = inter_scores
@@ -308,71 +309,6 @@ class Archipelago(Explainer):
             output["main_effects"] = main_effects
 
         return output
-
-    def get_interactive_explanations(self):
-        if self.interactive_explanations is None:
-            assert not self.interactive
-            self.cache_interactive_explanations()
-
-        return self.interactive_explanations, self.max_interactive_attribution_magnitude
-
-    def cache_interactive_explanations(self):
-        detection_dict = self.archdetect(get_pairwise_effects=False)
-        inter_strengths = detection_dict["interactions"]
-        inter_strengths = [
-            (inter, strength) for inter, strength in inter_strengths if strength > 1e-10
-        ]
-        self.main_effects = detection_dict["main_effects"]
-        self.inter_sets, _ = zip(*inter_strengths)
-
-        existing_inter_sets = set()
-        inter_sets_slider = []
-        existing_inter_sets_slider = set()
-
-        break_out = False
-        for top_k in range(len(self.inter_sets)):
-            thresholded_inter_sets = self.inter_sets[:top_k]
-            inter_sets_merged = merge_overlapping_sets(thresholded_inter_sets)
-            inter_sets_key = tuple(sorted(inter_sets_merged))
-            if inter_sets_key not in existing_inter_sets_slider:
-                inter_sets_slider.append(inter_sets_key)
-                existing_inter_sets_slider.add(inter_sets_key)
-
-            for inter_set in inter_sets_merged:
-                if inter_set in existing_inter_sets:
-                    continue
-                else:
-                    existing_inter_sets.add(inter_set)
-                    if len(inter_set) == len(self.input):
-                        break_out = True
-                        break
-            if break_out:
-                break
-
-        inter_effects = self.archattribute(list(existing_inter_sets))
-        self.max_interactive_attribution_magnitude = np.max(
-            np.abs(list(inter_effects.values())))
-
-        self.interactive_explanations = []
-        for inter_sets_key in inter_sets_slider:
-            inter_effects_slider = {
-                inter_set: inter_effects[inter_set] for inter_set in inter_sets_key
-            }
-            merged_indices = merge_overlapping_sets(
-                set(self.main_effects.keys()) | set(inter_effects_slider.keys()))
-
-            merged_explanation_slider = dict()
-            for s in merged_indices:
-                if s in inter_effects:
-                    merged_explanation_slider[s] = inter_effects[s]
-                elif s[0] in self.main_effects:
-                    assert len(s) == 1
-                    merged_explanation_slider[s] = self.main_effects[s[0]]
-                else:
-                    raise ValueError(
-                        "Error: index should have been in either main_effects or inter_effects"
-                    )
-            self.interactive_explanations.append(merged_explanation_slider)
 
 
 def merge_overlapping_sets(lsts, output_ints=False):
