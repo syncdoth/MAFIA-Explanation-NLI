@@ -1,13 +1,24 @@
 import numpy as np
-from .common_utils import get_efficient_mask_indices
-import pickle
 import copy
 
 
-class TextXformer:
-    # note: this xformer is not the transformer from Vaswani et al., 2017
+def get_efficient_mask_indices(inst, baseline, input):
+    invert = np.sum(1 * inst) >= len(inst) // 2
+    if invert:
+        context = input.copy()
+        insertion_target = baseline
+        mask_indices = np.argwhere(inst == False).flatten()
+    else:
+        context = baseline.copy()
+        insertion_target = input
+        mask_indices = np.argwhere(inst == True).flatten()
+    return mask_indices, context, insertion_target
 
-    def __init__(self, inputs, baseline_ids):
+
+class TextXformer:
+    # NOTE: this xformer is not the transformer from Vaswani et al., 2017
+
+    def __init__(self, inputs, baseline_ids, sep_token_id):
         """
         inputs: dict of huggingface tokenizer output. assume each array have
             shape [T,].
@@ -17,24 +28,18 @@ class TextXformer:
         self.input_ids = inputs['input_ids']
         self.baseline_ids = baseline_ids
         self.num_features = len(self.input_ids)
+        self.sep_token_id = sep_token_id
+        self.sep_pos = np.where(self.input_ids == sep_token_id)[0][0]
 
-    def simple_xform(self, inst):
-        mask_indices = np.argwhere(inst == True).flatten()
-        id_list = list(self.baseline_ids)
-        for i in mask_indices:
-            id_list[i] = self.input_ids[i]
-        return id_list
-
-    def efficient_xform(self, inst):
+    def __call__(self, inst):
+        """
+        Insert content of input_ids into baseline
+        """
         mask_indices, base, change = get_efficient_mask_indices(
             inst, self.baseline_ids, self.input_ids)
         for i in mask_indices:
             base[i] = change[i]
         return base
-
-    def __call__(self, inst):
-        id_list = self.efficient_xform(inst)
-        return id_list
 
     def process_batch_ids(self, batch_ids):
         """
@@ -47,6 +52,18 @@ class TextXformer:
             else:
                 batch[k] = np.repeat(v[np.newaxis, :], len(batch_ids), axis=0)
         return batch
+
+    @property
+    def sep_pos(self):
+        return self.sep_pos
+
+    @property
+    def sep_token_id(self):
+        return self.sep_token_id
+
+    @property
+    def num_features(self):
+        return self.num_features
 
 
 def process_stop_words(explanation, tokens, strip_first_last=True):
@@ -103,7 +120,6 @@ def get_input_baseline_ids(text, baseline_token, tokenizer, text_pair=None):
 
     # make baseline inputs
     input_ids = inputs['input_ids']
-    tokenizer.sep_token_id
     baseline_ids = np.where(
         np.isin(input_ids, [tokenizer.sep_token_id, tokenizer.cls_token_id]), input_ids,
         baseline_id)
@@ -119,20 +135,6 @@ def get_token_list(sentence, tokenizer):
         batch_ids = sentence
     tokens = tokenizer.convert_ids_to_tokens(batch_ids)
     return tokens
-
-
-def get_sst_sentences(split="test", path="../../downloads/sst_data/sst_trees.pickle"):
-    with open(path, "rb") as handle:
-        sst_trees = pickle.load(handle)
-
-    data = []
-    for s in range(len(sst_trees[split])):
-        sst_item = sst_trees[split][s]
-
-        sst_item = sst_trees[split][s]
-        sentence = sst_item[0]
-        data.append(sentence)
-    return data
 
 
 def prepare_huggingface_data(sentences, tokenizer, text_pair=None):
