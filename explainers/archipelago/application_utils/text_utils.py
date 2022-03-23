@@ -27,9 +27,9 @@ class TextXformer:
         self.input = inputs
         self.input_ids = inputs['input_ids']
         self.baseline_ids = baseline_ids
-        self.num_features = len(self.input_ids)
-        self.sep_token_id = sep_token_id
-        self.sep_pos = np.where(self.input_ids == sep_token_id)[0][0]
+        self._num_features = len(self.input_ids)
+        self._sep_token_id = sep_token_id
+        self._sep_pos = np.where(self.input_ids == sep_token_id)[0][0]
 
     def __call__(self, inst):
         """
@@ -55,15 +55,15 @@ class TextXformer:
 
     @property
     def sep_pos(self):
-        return self.sep_pos
+        return self._sep_pos
 
     @property
     def sep_token_id(self):
-        return self.sep_token_id
+        return self._sep_token_id
 
     @property
     def num_features(self):
-        return self.num_features
+        return self._num_features
 
 
 def process_stop_words(explanation, tokens, strip_first_last=True):
