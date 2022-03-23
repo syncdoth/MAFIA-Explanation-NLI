@@ -2,4 +2,4 @@
 *.ipynb_checkpoints/
 data
 models/
-eval_results
+eval_results/
