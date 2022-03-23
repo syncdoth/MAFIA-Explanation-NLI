@@ -4,11 +4,16 @@ sys.path.insert(0, '/data/schoiaj/repos/nli_explain')
 
 import argparse
 import json
-from itertools import chain
 import string
+from itertools import chain
 
+import numpy as np
 import torch
-from explainers.archipelago.application_utils.text_utils import *
+from explainers.archipelago.application_utils.text_utils import (AttentionXformer,
+                                                                 TextXformer,
+                                                                 get_input_baseline_ids,
+                                                                 get_token_list,
+                                                                 process_stop_words)
 from explainers.archipelago.application_utils.text_utils_torch import BertWrapperTorch
 from explainers.archipelago.explainer import Archipelago, CrossArchipelago
 from tqdm import tqdm
@@ -84,13 +89,29 @@ def run(data, tokenizer, model_wrapper, label_map, args):
     all_explanations = []
     pbar = tqdm(zip(*data), total=len(data[0]))
     for premise, hypothesis in pbar:
-        text_inputs, baseline_ids = get_input_baseline_ids(premise,
-                                                           args.baseline_token,
-                                                           tokenizer,
-                                                           text_pair=hypothesis)
-        _text_inputs = {k: v[np.newaxis, :] for k, v in text_inputs.items()}
+        if 'attention' in args.baseline_token:
+            # use attention mask to ablate token.
+            text_inputs, baseline_ids = get_input_baseline_ids(
+                premise,
+                args.baseline_token.split('+')[1],  # the format is "attention+[MASK]"
+                tokenizer,
+                text_pair=hypothesis)
+            _text_inputs = {k: v[np.newaxis, :] for k, v in text_inputs.items()}
+            xf = AttentionXformer(text_inputs,
+                                  baseline_ids,
+                                  sep_token_id=tokenizer.sep_token_id)
+        else:
+            text_inputs, baseline_ids = get_input_baseline_ids(premise,
+                                                               args.baseline_token,
+                                                               tokenizer,
+                                                               text_pair=hypothesis)
+            _text_inputs = {k: v[np.newaxis, :] for k, v in text_inputs.items()}
+            xf = TextXformer(text_inputs,
+                             baseline_ids,
+                             sep_token_id=tokenizer.sep_token_id)
+
+        # use predicted class to explain the model's decision
         pred = np.argmax(model_wrapper(**_text_inputs)[0])
-        xf = TextXformer(text_inputs, baseline_ids, sep_token_id=tokenizer.sep_token_id)
 
         if args.explainer == 'arch':
             apgo = Archipelago(model_wrapper,

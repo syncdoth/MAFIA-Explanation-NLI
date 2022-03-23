@@ -53,6 +53,9 @@ class TextXformer:
                 batch[k] = np.repeat(v[np.newaxis, :], len(batch_ids), axis=0)
         return batch
 
+    def get_baseline_inputs(self):
+        return self.process_batch_ids([self.baseline_ids])
+
     @property
     def sep_pos(self):
         return self._sep_pos
@@ -64,6 +67,34 @@ class TextXformer:
     @property
     def num_features(self):
         return self._num_features
+
+
+class AttentionXformer(TextXformer):
+
+    # def __call__(self, inst):
+    #     """
+    #     Insert content of input_ids into baseline
+
+    #     this function does nothing: since the inst will be binary,
+    #     where 1 denotes the input and 0 denotes baseline. This is exactly the
+    #     same as what we want in attention mask.
+    #     """
+    #     return inst
+
+    def process_batch_ids(self, batch_ids):
+        """
+        batch_ids: list of numpy arrays, each is a input_ids
+        """
+        batch = {}
+        for k, v in self.input.items():
+            if k == 'attention_mask':
+                batch[k] = np.array(batch_ids)
+            else:
+                batch[k] = np.repeat(v[np.newaxis, :], len(batch_ids), axis=0)
+        return batch
+
+    def get_baseline_inputs(self):
+        return super().process_batch_ids([self.baseline_ids])
 
 
 def process_stop_words(explanation, tokens, strip_first_last=True):

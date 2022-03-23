@@ -157,8 +157,7 @@ class Archipelago(Explainer):
                 k: np.expand_dims(v, 0) for k, v in self.data_xformer.input.items()
             },
                                       return_embedding=True)
-            _, base_emb = self.model(**self.data_xformer.process_batch_ids(
-                [self.data_xformer.baseline_ids]),
+            _, base_emb = self.model(**self.data_xformer.get_baseline_inputs(),
                                      return_embedding=True)
             input_emb, base_emb = input_emb[0], base_emb[0]  # remove batch dim: bs=1
         else:
@@ -558,8 +557,7 @@ class CrossArchipelago(Archipelago):
                 k: np.expand_dims(v, 0) for k, v in self.data_xformer.input.items()
             },
                                       return_embedding=True)
-            _, base_emb = self.model(**self.data_xformer.process_batch_ids(
-                [self.data_xformer.baseline_ids]),
+            _, base_emb = self.model(**self.data_xformer.get_baseline_inputs(),
                                      return_embedding=True)
             input_emb, base_emb = input_emb[0], base_emb[0]  # remove batch dim: bs=1
         else:
