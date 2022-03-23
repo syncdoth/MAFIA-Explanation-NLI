@@ -108,7 +108,6 @@ class Archipelago(Explainer):
         verbose=False,
     ):
         super().__init__(
-            self,
             model,
             input=input,
             baseline=baseline,
