@@ -371,3 +371,380 @@ def merge_overlapping_sets(lsts, output_ints=False):
                 output.append(tuple(sorted(s)))
 
     return output
+
+
+class CrossArchipelago(Archipelago):
+
+    def __init__(
+        self,
+        model,
+        input=None,
+        baseline=None,
+        data_xformer=None,
+        output_indices=0,
+        batch_size=20,
+        verbose=False,
+    ):
+        super().__init__(
+            model,
+            input=input,
+            baseline=baseline,
+            data_xformer=data_xformer,
+            output_indices=output_indices,
+            batch_size=batch_size,
+            verbose=verbose,
+        )
+
+        self.sep_pos = self.data_xformer.sep_pos
+
+    def batch_set_inference(self,
+                            set_indices,
+                            context,
+                            insertion_target,
+                            insertion_target2=None,
+                            sep_pos=None,
+                            include_context=False):
+        """
+        Creates archipelago type data instances and runs batch inference on them
+        All "sets" are represented as tuples to work as keys in dictionaries
+        """
+
+        if insertion_target2 is not None:
+            assert sep_pos is not None, "sep idx must be also provided!"
+
+        num_batches = int(np.ceil(len(set_indices) / self.batch_size))
+
+        scores = {}
+        for b in self.verbose_iterable(range(num_batches)):
+            batch_sets = set_indices[b * self.batch_size:(b + 1) * self.batch_size]
+            data_batch = []
+            for index_tuple in batch_sets:
+                new_instance = context.copy()
+                for i in index_tuple:
+                    if insertion_target2 is not None:
+                        insert_from = insertion_target if i < sep_pos else insertion_target2
+                        new_instance[i] = insert_from[i]
+                    else:
+                        new_instance[i] = insertion_target[i]
+
+                if self.data_xformer is not None:
+                    new_instance = self.data_xformer(new_instance)
+
+                data_batch.append(new_instance)
+
+            if include_context and b == 0:
+                if self.data_xformer is not None:
+                    data_batch.append(self.data_xformer(context))
+                else:
+                    data_batch.append(context)
+
+            preds = self.model(**self.data_xformer.process_batch_ids(data_batch))
+
+            for c, index_tuple in enumerate(batch_sets):
+                scores[index_tuple] = preds[c, self.output_indices]
+            if include_context and b == 0:
+                context_score = preds[-1, self.output_indices]
+
+        output = {"scores": scores}
+        if include_context and num_batches > 0:
+            output["context_score"] = context_score
+        return output
+
+    def search_feature_sets(
+        self,
+        context,
+        insertion_target,
+        insertion_target2=None,
+        context_embedding=None,
+        insertion_target_embedding=None,
+        get_interactions=True,
+        get_main_effects=False,
+        get_pairwise_effects=False,
+    ):
+        """
+        Gets optional pairwise interaction strengths, optional main effects, and optional pairwise effects
+        "Effects" are archattribute scores
+        All three options are combined to reuse function calls
+        """
+        num_feats = context.size
+        idv_indices = [(i,) for i in range(num_feats)]
+
+        preds = self.batch_set_inference(idv_indices,
+                                         context,
+                                         insertion_target,
+                                         insertion_target2=insertion_target2,
+                                         sep_pos=self.sep_pos,
+                                         include_context=True)
+        idv_scores, context_score = preds["scores"], preds["context_score"]
+
+        output = {}
+
+        if get_interactions:
+            pair_indices = []
+            pairwise_effects = {}
+            for i in range(1, num_feats - 1):
+                if i == self.sep_pos:
+                    continue
+                for j in range(i + 1, num_feats - 1):
+                    if j == self.sep_pos:
+                        continue
+                    pair_indices.append((i, j))
+
+            preds = self.batch_set_inference(pair_indices,
+                                             context,
+                                             insertion_target,
+                                             insertion_target2=insertion_target2,
+                                             sep_pos=self.sep_pos)
+            pair_scores = preds["scores"]
+
+            inter_scores = {}
+            for i, j in pair_indices:
+
+                # interaction detection
+                if context_embedding is not None and insertion_target_embedding is not None:
+                    ell_i = np.linalg.norm(context_embedding[i] -
+                                           insertion_target_embedding[i])
+                    ell_j = np.linalg.norm(context_embedding[j] -
+                                           insertion_target_embedding[j])
+                    if ell_i * ell_j == 0:
+                        # This means that it is a special token:
+                        # the baseline and the input shares the special tokens.
+                        continue
+                else:
+                    # This is actually setting h1 = h2 = 1
+                    ell_i = np.abs(context[i].item() - insertion_target[i].item())
+                    ell_j = np.abs(context[j].item() - insertion_target[j].item())
+
+                inter_scores[(i, j)] = (1 / (ell_i * ell_j) *
+                                        (context_score - idv_scores[(i,)] -
+                                         idv_scores[(j,)] + pair_scores[(i, j)]))
+                if inter_scores[(i, j)] == float('inf'):
+                    import pdb
+                    pdb.set_trace()
+
+                if get_pairwise_effects:
+                    # leverage existing function calls to compute pairwise effects
+                    pairwise_effects[(i, j)] = pair_scores[(i, j)] - context_score
+
+            output["interactions"] = inter_scores
+
+            if get_pairwise_effects:
+                output["pairwise_effects"] = pairwise_effects
+
+        if get_main_effects:  # leverage existing function calls to compute main effects
+            main_effects = {}
+            for i in idv_scores:
+                main_effects[i[0]] = idv_scores[i] - context_score
+            output["main_effects"] = main_effects
+
+        return output
+
+    def archdetect(
+        self,
+        get_main_effects=True,
+        get_pairwise_effects=True,
+        single_context=False,
+        cross_sent_context=False,
+        weights=[0.25, 0.25, 0.25, 0.25],
+        use_embedding=False,
+    ):
+        """
+        Detects interactions and sorts them
+        Optional: gets archipelago main effects and/or pairwise effects from function reuse
+        "Effects" are archattribute scores
+        """
+        if self.data_xformer is not None and use_embedding:
+            _, input_emb = self.model(**{
+                k: np.expand_dims(v, 0) for k, v in self.data_xformer.input.items()
+            },
+                                      return_embedding=True)
+            _, base_emb = self.model(**self.data_xformer.process_batch_ids(
+                [self.data_xformer.baseline_ids]),
+                                     return_embedding=True)
+            input_emb, base_emb = input_emb[0], base_emb[0]  # remove batch dim: bs=1
+        else:
+            input_emb, base_emb = None, None
+
+        search_a = self.search_feature_sets(
+            self.baseline,
+            self.input,
+            context_embedding=base_emb,
+            insertion_target_embedding=input_emb,
+            get_main_effects=get_main_effects,
+            get_pairwise_effects=get_pairwise_effects,
+        )
+        inter_a = search_a["interactions"]
+
+        # notice that input and baseline have swapped places in the arg list
+        search_b = self.search_feature_sets(
+            self.input,
+            self.baseline,
+            context_embedding=input_emb,
+            insertion_target_embedding=base_emb,
+        )
+        inter_b = search_b["interactions"]
+
+        if cross_sent_context:
+            search_p = self.search_feature_sets(
+                np.where(
+                    np.arange(len(self.input)) <= self.sep_pos, self.input,
+                    self.baseline),
+                self.baseline,
+                insertion_target2=self.input,
+                context_embedding=input_emb,
+                insertion_target_embedding=base_emb,
+            )
+            inter_p = search_p["interactions"]
+
+            search_h = self.search_feature_sets(
+                np.where(
+                    np.arange(len(self.input)) < self.sep_pos, self.baseline, self.input),
+                self.input,
+                insertion_target2=self.baseline,
+                context_embedding=base_emb,
+                insertion_target_embedding=input_emb,
+            )
+            inter_h = search_h["interactions"]
+
+        inter_strengths = {}
+        for pair in inter_a:
+            strengths = {}
+            if single_context:
+                strengths['all'] = inter_b[pair]**2
+            else:
+                strengths['input'] = inter_a[pair]**2
+                strengths['base'] = inter_b[pair]**2
+                strengths['all'] = (weights[0] * inter_a[pair]**2 +
+                                    weights[1] * inter_b[pair]**2)
+                if cross_sent_context:
+                    strengths['pre'] = inter_p[pair]**2
+                    strengths['hyp'] = inter_h[pair]**2
+                    strengths['all'] += (weights[2] * inter_p[pair]**2 +
+                                         weights[3] * inter_h[pair]**2)
+            inter_strengths[pair] = strengths
+        sorted_scores = sorted(inter_strengths.items(),
+                               key=lambda kv: kv[1]['all'],
+                               reverse=True)
+
+        output = {"interactions": sorted_scores}
+        for key in search_a:
+            if key not in output:
+                output[key] = search_a[key]
+        return output
+
+    def explain(self,
+                top_k=None,
+                separate_effects=False,
+                use_embedding=False,
+                cross_sent_context=True):
+        if (self.inter_sets is None) or (self.main_effects is None):
+            detection_dict = self.archdetect(get_pairwise_effects=False,
+                                             use_embedding=use_embedding,
+                                             cross_sent_context=cross_sent_context)
+            inter_strengths = detection_dict["interactions"]
+            self.main_effects = detection_dict["main_effects"]
+            self.inter_sets = inter_strengths
+
+        if cross_sent_context:
+            valid_inter_sets = []
+            for inter_set in self.inter_sets:
+                if inter_set[0][0] < self.sep_pos and inter_set[0][1] < self.sep_pos:
+                    if inter_set[1]['hyp'] > inter_set[1]['pre']:
+                        valid_inter_sets.append(inter_set)
+                elif inter_set[0][0] < self.sep_pos and inter_set[0][1] > self.sep_pos:
+                    # TODO
+                    valid_inter_sets.append(inter_set)
+                else:
+                    if inter_set[1]['pre'] > inter_set[1]['hyp']:
+                        valid_inter_sets.append(inter_set)
+            self.inter_sets = sorted(valid_inter_sets,
+                                     key=lambda x: x[1]['all'],
+                                     reverse=True)
+        if isinstance(top_k, int):
+            thresholded_inter_sets = self.inter_sets[:top_k]
+        elif top_k is None:
+            thresholded_inter_sets = self.inter_sets
+        else:
+            raise ValueError("top_k must be int or None")
+
+        # if cross_sent_context:
+        #     pre_set, cross_set, hyp_set = [], [], []
+        #     for inter_set in thresholded_inter_sets:
+        #         if inter_set[0][0] < self.sep_pos and inter_set[0][1] < self.sep_pos:
+        #             pre_set.append(inter_set)
+        #         elif inter_set[0][0] < self.sep_pos and inter_set[0][1] > self.sep_pos:
+        #             cross_set.append(inter_set)
+        #         else:
+        #             hyp_set.append(inter_set)
+
+        #     inter_sets_merged = cross_merge(pre_set, cross_set, hyp_set)
+        # else:
+        inter_sets_merged = merge_overlapping_sets(
+            [pair for pair, _ in thresholded_inter_sets])
+        inter_effects = self.archattribute(inter_sets_merged)
+
+        if separate_effects:
+            return inter_effects, self.main_effects
+
+        # if cross_sent_context:
+        #     merged_indices = set(inter_effects.keys())
+        #     for idx in self.main_effects.keys():
+        #         if idx not in chain.from_iterable(inter_effects.keys()):
+        #             merged_indices.add((idx,))
+        # else:
+        merged_indices = merge_overlapping_sets(
+            set(self.main_effects.keys()) | set(inter_effects.keys()))
+        merged_explanation = dict()
+        for s in merged_indices:
+            if s in inter_effects:
+                merged_explanation[s] = inter_effects[s]
+            elif s[0] in self.main_effects:
+                assert len(s) == 1
+                merged_explanation[s] = self.main_effects[s[0]]
+            else:
+                raise ValueError(
+                    "Error: index should have been in either main_effects or inter_effects"
+                )
+        return merged_explanation
+
+
+def cross_merge(pre_set, cross_set, hyp_set):
+    merged = []
+    for cross in cross_set:
+        stronger_pre = cross[1]['pre'] > cross[1]['hyp']
+
+        if stronger_pre:
+            for pre in pre_set:
+                if cross[0][0] in pre[0]:
+                    merged.append(tuple(sorted(set(cross[0] + pre[0]))))
+                    break
+            else:
+                for hyp in hyp_set:
+                    if cross[0][0] in hyp[0]:
+                        merged.append(tuple(sorted(set(cross[0] + hyp[0]))))
+                        break
+        else:
+            for hyp in hyp_set:
+                if cross[0][0] in hyp[0]:
+                    merged.append(tuple(sorted(set(cross[0] + hyp[0]))))
+                    break
+            else:
+                for pre in pre_set:
+                    if cross[0][0] in pre[0]:
+                        merged.append(tuple(sorted(set(cross[0] + pre[0]))))
+                        break
+
+    finalized = []
+    merged_interactions = set()
+    for i, inter1 in enumerate(merged):
+        for j, inter2 in enumerate(merged):
+            if len(set(inter1) | set(inter2)) == 4:
+                finalized.append(tuple(set(inter1) | set(inter2)))
+                merged_interactions.add(i)
+                merged_interactions.add(j)
+
+    for i, inter in enumerate(merged):
+        if i not in merged_interactions:
+            finalized.append(inter)
+
+    return finalized
