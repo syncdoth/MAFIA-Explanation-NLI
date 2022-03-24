@@ -102,6 +102,33 @@ def get_token_rationales(df, how='vote'):
         df[k] = v
 
 
+def get_annotator_rationales(df):
+    annotators_token_rationale = [[], [], []]
+    for i in range(len(df)):
+        for k in (1, 2, 3):
+            rationale = []
+            for j in (1, 2):
+                current_marked = df.iloc[i][f'Sentence{j}_marked_{k}']
+                current_marked = current_marked.strip().split(' ')
+                match = [
+                    w.translate(str.maketrans('', '', string.punctuation))
+                    for w in current_marked
+                    if w.startswith('*') and w.endswith('*')
+                ]
+                rationale.append(match)
+            annotators_token_rationale[k - 1].append(rationale)
+
+    annotators_interaction_rationale = [[], [], []]
+    for index, row in df.iterrows():
+        for i, annotator in enumerate(annotators_token_rationale):
+            sent1_groups = get_contiguous_phrases(row['Sentence1'], annotator[index][0])
+            sent2_groups = get_contiguous_phrases(row['Sentence2'], annotator[index][1])
+            annotators_interaction_rationale[i].append(
+                list(product(sent1_groups, sent2_groups)))
+
+    return annotators_token_rationale, annotators_interaction_rationale
+
+
 def load_df(data_path,
             how='union',
             label_map=None,

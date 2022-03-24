@@ -138,6 +138,7 @@ def main():
                         choices=['token_f1', 'interaction_precision'])
     parser.add_argument('--skip_neutral', action='store_true')
     parser.add_argument('--only_correct', action='store_true')
+    parser.add_argument('--test_annotator', type=int, default=-1)
     args = parser.parse_args()
 
     config = load_pretrained_config(args.model_name)
@@ -155,6 +156,9 @@ def main():
 
     explanation_fname = (f'explanations/{args.model_name}_{args.explainer}_{args.topk}'
                          f'_{args.mode}_BT={args.baseline_token}')
+    if args.test_annotator > 0:
+        args.only_correct = False
+        explanation_fname = f'explanations/annotator{args.test_annotator}'
     if args.metric == 'token_f1':
         # load from explanations that have token rationales:
         # format:
@@ -193,7 +197,6 @@ def main():
 
 def run(data, explanations, args):
     scores = []
-    correct = []
     pbar = tqdm(zip(*data, explanations), total=len(explanations))
     for gt_rationale, label, exp in pbar:
         if args.skip_neutral:
@@ -202,7 +205,6 @@ def run(data, explanations, args):
         if args.only_correct:
             if label != exp['pred_label']:
                 continue
-        correct.append(label == exp['pred_label'])
         if args.metric == 'token_f1':
             scores.append(
                 compute_score(gt_rationale[0], gt_rationale[1], exp['premise_rationales'],
@@ -251,10 +253,12 @@ def run(data, explanations, args):
                 'hypothesis': hypothesis_f1,
             },
         })
-        save_name = f'{args.model_name}_{args.explainer}_token_f1_{args.mode}_{args.how}_{args.topk}'
     elif args.metric == 'interaction_precision':
         results = pd.DataFrame({'interaction_precision': [scores.mean()]})
-        save_name = f'{args.model_name}_{args.explainer}_interaction_precision_{args.mode}_{args.how}_{args.topk}'
+
+    save_name = f'{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}'
+    if args.test_annotator > 0:
+        save_name = f'annotator{args.test_annotator}_{args.metric}_{args.mode}_{args.how}'
 
     if args.skip_neutral:
         save_name += '_skip-neutral'
