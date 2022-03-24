@@ -86,10 +86,12 @@ def jaccard_sim(first, second):
     numbered_first = set(get_numbered_list(first))
     numbered_second = set(get_numbered_list(second))
 
+    if len(numbered_first | numbered_second) == 0:
+        return 0
     return len(numbered_first & numbered_second) / len(numbered_first | numbered_second)
 
 
-def interaction_precision(gt_rationales, pred_rationales):
+def interaction_precision(gt_rationales, pred_rationales, skip_intra_rationale=False):
     """
     gt_rationales: list of list of 2 tuple of words:
         [
@@ -101,13 +103,17 @@ def interaction_precision(gt_rationales, pred_rationales):
     """
     precision = []
     for p in pred_rationales:
+        if skip_intra_rationale and (len(p[0]) == 0 or len(p[1]) == 0):
+            # if the explanation is not cross-sentence, continue
+            continue
         similarities = []
         for g in gt_rationales:
             similarities.append(jaccard_sim(p[0], g[0]) * jaccard_sim(p[1], g[1]))
         precision.append(max(similarities))
 
-    interaction_precision = sum(precision) / len(precision)
-    return interaction_precision
+    if len(precision) == 0:
+        return 0
+    return sum(precision) / len(precision)
 
 
 def main():
@@ -127,7 +133,7 @@ def main():
     parser.add_argument('--topk', type=int, default=5)
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--metric',
-                        type='str',
+                        type=str,
                         default='token_f1',
                         choices=['token_f1', 'interaction_precision'])
     parser.add_argument('--skip_neutral', action='store_true')
@@ -137,11 +143,15 @@ def main():
     config = load_pretrained_config(args.model_name)
     tokenizer = AutoTokenizer.from_pretrained(config['model_card'])
     # NOTE: tokenizing the rationales, since the explanations are also on subwords.
+    # NOTE: not needed, since we merge token in process_tokens.
     data = load_df(args.data_root,
                    args.how,
                    mode=args.mode,
-                   tokenizer=tokenizer,
                    rationale_format=args.metric.split('_')[0])
+    sent, gt_rationale, label = data
+    if isinstance(gt_rationale, tuple) and len(gt_rationale) == 2:
+        gt_rationale = list(zip(*gt_rationale))
+    data = (gt_rationale, label)
 
     explanation_fname = (f'explanations/{args.model_name}_{args.explainer}_{args.topk}'
                          f'_{args.mode}_BT={args.baseline_token}')
@@ -184,8 +194,8 @@ def main():
 def run(data, explanations, args):
     scores = []
     correct = []
-    pbar = tqdm(zip(*data, explanations), total=len(data[0]))
-    for sentences, gt_rationale, label, exp in pbar:
+    pbar = tqdm(zip(*data, explanations), total=len(explanations))
+    for gt_rationale, label, exp in pbar:
         if args.skip_neutral:
             if label == 'neutral':
                 continue
@@ -198,44 +208,57 @@ def run(data, explanations, args):
                 compute_score(gt_rationale[0], gt_rationale[1], exp['premise_rationales'],
                               exp['hypothesis_rationales']))
         elif args.metric == 'interaction_precision':
-            scores.append(interaction_precision(gt_rationale, exp['pred_rationales']))
+            if len(gt_rationale) == 0:  # this might happen with vote
+                continue
+            scores.append(
+                interaction_precision(gt_rationale,
+                                      exp['pred_rationales'],
+                                      skip_intra_rationale=True))
         else:
             raise NotImplementedError
 
     scores = np.array(scores)
-    premise_precision = scores[:, 0].mean() * 100
-    premise_recall = scores[:, 1].mean() * 100
-    premise_f1 = scores[:, 2].mean() * 100
-    hypothesis_precision = scores[:, 3].mean() * 100
-    hypothesis_recall = scores[:, 4].mean() * 100
-    hypothesis_f1 = scores[:, 5].mean() * 100
 
-    print('premise:')
-    print('\tprecision\trecall\tf1')
-    print(f'\t{premise_precision:.2f}\t{premise_recall:.2f}\t{premise_f1:.2f}')
-    print()
-    print('hypothesis:')
-    print('\tprecision\trecall\tf1')
-    print(f'\t{hypothesis_precision:.2f}\t{hypothesis_recall:.2f}\t{hypothesis_f1:.2f}')
+    if args.metric == 'token_f1':
 
-    results = pd.DataFrame({
-        'precision': {
-            'premise': premise_precision,
-            'hypothesis': hypothesis_precision,
-        },
-        'recall': {
-            'premise': premise_recall,
-            'hypothesis': hypothesis_recall,
-        },
-        'f1': {
-            'premise': premise_f1,
-            'hypothesis': hypothesis_f1,
-        },
-    })
-    save_name = f'{args.model_name}_{args.explainer}_token_f1_{args.mode}_{args.how}_{args.topk}'
+        premise_precision = scores[:, 0].mean() * 100
+        premise_recall = scores[:, 1].mean() * 100
+        premise_f1 = scores[:, 2].mean() * 100
+        hypothesis_precision = scores[:, 3].mean() * 100
+        hypothesis_recall = scores[:, 4].mean() * 100
+        hypothesis_f1 = scores[:, 5].mean() * 100
+
+        print('premise:')
+        print('\tprecision\trecall\tf1')
+        print(f'\t{premise_precision:.2f}\t{premise_recall:.2f}\t{premise_f1:.2f}')
+        print()
+        print('hypothesis:')
+        print('\tprecision\trecall\tf1')
+        print(
+            f'\t{hypothesis_precision:.2f}\t{hypothesis_recall:.2f}\t{hypothesis_f1:.2f}')
+
+        results = pd.DataFrame({
+            'precision': {
+                'premise': premise_precision,
+                'hypothesis': hypothesis_precision,
+            },
+            'recall': {
+                'premise': premise_recall,
+                'hypothesis': hypothesis_recall,
+            },
+            'f1': {
+                'premise': premise_f1,
+                'hypothesis': hypothesis_f1,
+            },
+        })
+        save_name = f'{args.model_name}_{args.explainer}_token_f1_{args.mode}_{args.how}_{args.topk}'
+    elif args.metric == 'interaction_precision':
+        results = pd.DataFrame({'interaction_precision': [scores.mean()]})
+        save_name = f'{args.model_name}_{args.explainer}_interaction_precision_{args.mode}_{args.how}_{args.topk}'
+
     if args.skip_neutral:
         save_name += '_skip-neutral'
-    if args.skip_neutral:
+    if args.only_correct:
         save_name += '_only-correct'
     results.to_csv(f'{save_name}.csv', index=False)
 
