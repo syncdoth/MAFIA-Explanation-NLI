@@ -4,6 +4,19 @@ from collections import Counter
 from itertools import chain, product
 
 import pandas as pd
+from nltk.corpus import stopwords
+
+
+def perturb_text(text, baseline_token='[MASK]'):
+    text_list = text.split(' ')
+    text_perturbed = []
+    for delete in text.split(' '):
+        if delete.lower() in set(stopwords.words('english')):
+            continue
+        text_perturbed.append(
+            (' '.join([baseline_token if w == delete else w for w in text_list]), delete))
+
+    return text_perturbed
 
 
 def get_contiguous_phrases(text, tokens):
