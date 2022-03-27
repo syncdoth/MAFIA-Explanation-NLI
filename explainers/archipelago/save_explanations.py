@@ -27,6 +27,7 @@ def process_token(tokens, idx):
     merge subwords.
     """
     # TODO: either do this or use tokenizer: not both.
+    # TODO: duplicate problem
     tok = tokens[idx]
     # backwards
     if tok.startswith('##'):
@@ -78,7 +79,7 @@ def main():
 
     all_explanations = run(sent_data, tokenizer, model_wrapper, config['label_map'], args)
     with open(
-            f'explanations/{args.model_name}_{args.explainer}_{args.topk}_{args.mode}_{args.format}_BT={args.baseline_token}.json',
+            f'explanations/{args.model_name}_{args.explainer}_{args.topk}_{args.mode}_BT={args.baseline_token}_{args.format}.json',
             'w') as f:
         json.dump(all_explanations, f, indent=4)
 
