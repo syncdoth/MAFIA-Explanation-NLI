@@ -9,6 +9,8 @@ import json
 
 import torch
 from explainers.archipelago.get_explainer import ArchExplainerInterface
+from explainers.integrated_hessians.IH_explainer import IHBertExplainer
+from explainers.naive_explainer import NaiveExplainer
 from tqdm import tqdm
 from utils.data_utils import load_df
 
@@ -49,7 +51,10 @@ def main():
     parser.add_argument('--explainer',
                         type=str,
                         default='arch',
-                        choices=['arch', 'cross_arch'])
+                        choices=[
+                            'arch', 'cross_arch', 'naive_occlusion',
+                            'naive_interaction_occlusion', 'IH'
+                        ])
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--topk', type=int, default=5)
     parser.add_argument('--format',
@@ -63,32 +68,49 @@ def main():
     del data, gt_rationale, labels  # unused
 
     device = torch.device("cuda")
-    explainer = ArchExplainerInterface(args.model_name,
-                                       device=device,
-                                       baseline_token=args.baseline_token,
-                                       explainer_class=args.explainer)
+    if 'arch' in args.explainer:
+        explainer = ArchExplainerInterface(args.model_name,
+                                           device=device,
+                                           baseline_token=args.baseline_token,
+                                           explainer_class=args.explainer)
+        explain_kwargs = dict(batch_size=args.batch_size, topk=args.topk)
+    elif 'naive' in args.explainer:
+        explainer = NaiveExplainer(args.model_name,
+                                   device=device,
+                                   baseline_token=args.baseline_token,
+                                   interaction_occlusion='interaction' in args.explainer)
+        explain_kwargs = dict(return_cache=False)
+    elif args.explainer == 'IH':
+        # NOTE: currently, IH only support Bert
+        args.model_name = 'bert-base'
+        explainer = IHBertExplainer(args.model_name,
+                                    device=device,
+                                    baseline_token=args.baseline_token)
+        explain_kwargs = dict(batch_size=args.batch_size,
+                              num_samples=256,
+                              use_expectation=False)
+    else:
+        raise NotImplementedError
 
-    all_explanations = run(sent_data, explainer, args)
+    all_explanations = run(sent_data, explainer, args, **explain_kwargs)
     with open(
             f'explanations/{args.model_name}_{args.explainer}_{args.topk}_{args.mode}_BT={args.baseline_token}_{args.format}.json',
             'w') as f:
         json.dump(all_explanations, f, indent=4)
 
 
-def run(data, explainer, args):
+def run(data, explainer, args, **explain_kwargs):
     inv_label_map = explainer.get_label_map(inv=True)
 
     all_explanations = []
     pbar = tqdm(zip(*data), total=len(data[0]))
     for premise, hypothesis in pbar:
-        explanation, tokens, pred = explainer.explain(premise,
-                                                      hypothesis,
-                                                      args.batch_size,
-                                                      topk=args.topk)
+        explanation, tokens, pred = explainer.explain(premise, hypothesis,
+                                                      **explain_kwargs)
 
         topk_exp = [
             k for k, _ in sorted(explanation.items(), key=lambda x: x[1], reverse=True)
-        ][:args.topk]  # TODO: here, topk means sth different
+        ][:args.topk]
         sep_position = tokens.index(explainer.tokenizer.sep_token)
 
         if args.format == 'token':
