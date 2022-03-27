@@ -1,25 +1,16 @@
+from itertools import chain
+import string
 import sys
 
 sys.path.insert(0, '/data/schoiaj/repos/nli_explain')
 
 import argparse
 import json
-import string
-from itertools import chain
 
-import numpy as np
 import torch
-from explainers.archipelago.application_utils.text_utils import (AttentionXformer,
-                                                                 TextXformer,
-                                                                 get_input_baseline_ids,
-                                                                 get_token_list,
-                                                                 process_stop_words)
-from explainers.archipelago.application_utils.text_utils_torch import BertWrapperTorch
-from explainers.archipelago.explainer import Archipelago, CrossArchipelago
+from explainers.archipelago.get_explainer import ArchExplainerInterface
 from tqdm import tqdm
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from utils.data_utils import load_df
-from utils.utils import load_pretrained_config
 
 
 def process_token(tokens, idx):
@@ -71,70 +62,34 @@ def main():
     sent_data, gt_rationale, labels = data
     del data, gt_rationale, labels  # unused
 
-    config = load_pretrained_config(args.model_name)
     device = torch.device("cuda")
-    tokenizer = AutoTokenizer.from_pretrained(config['model_card'])
-    model = AutoModelForSequenceClassification.from_pretrained(config['model_card'])
-    model_wrapper = BertWrapperTorch(model, device)
+    explainer = ArchExplainerInterface(args.model_name,
+                                       device=device,
+                                       baseline_token=args.baseline_token,
+                                       explainer_class=args.explainer)
 
-    all_explanations = run(sent_data, tokenizer, model_wrapper, config['label_map'], args)
+    all_explanations = run(sent_data, explainer, args)
     with open(
             f'explanations/{args.model_name}_{args.explainer}_{args.topk}_{args.mode}_BT={args.baseline_token}_{args.format}.json',
             'w') as f:
         json.dump(all_explanations, f, indent=4)
 
 
-def run(data, tokenizer, model_wrapper, label_map, args):
-    inv_label_map = {idx: label for label, idx in label_map.items()}
+def run(data, explainer, args):
+    inv_label_map = explainer.get_label_map(inv=True)
 
     all_explanations = []
     pbar = tqdm(zip(*data), total=len(data[0]))
     for premise, hypothesis in pbar:
-        if 'attention' in args.baseline_token:
-            # use attention mask to ablate token.
-            text_inputs, baseline_ids = get_input_baseline_ids(
-                premise,
-                args.baseline_token.split('+')[1],  # the format is "attention+[MASK]"
-                tokenizer,
-                text_pair=hypothesis)
-            _text_inputs = {k: v[np.newaxis, :] for k, v in text_inputs.items()}
-            xf = AttentionXformer(text_inputs,
-                                  baseline_ids,
-                                  sep_token_id=tokenizer.sep_token_id)
-        else:
-            text_inputs, baseline_ids = get_input_baseline_ids(premise,
-                                                               args.baseline_token,
-                                                               tokenizer,
-                                                               text_pair=hypothesis)
-            _text_inputs = {k: v[np.newaxis, :] for k, v in text_inputs.items()}
-            xf = TextXformer(text_inputs,
-                             baseline_ids,
-                             sep_token_id=tokenizer.sep_token_id)
-
-        # use predicted class to explain the model's decision
-        pred = np.argmax(model_wrapper(**_text_inputs)[0])
-
-        if args.explainer == 'arch':
-            apgo = Archipelago(model_wrapper,
-                               data_xformer=xf,
-                               output_indices=pred,
-                               batch_size=args.batch_size)
-        elif args.explainer == 'cross_arch':
-            apgo = CrossArchipelago(model_wrapper,
-                                    data_xformer=xf,
-                                    output_indices=pred,
-                                    batch_size=args.batch_size)
-        else:
-            raise NotImplementedError
-
-        explanation = apgo.explain(top_k=args.topk, use_embedding=True)
-        tokens = get_token_list(text_inputs['input_ids'], tokenizer)
-        explanation, tokens = process_stop_words(explanation, tokens)
+        explanation, tokens, pred = explainer.explain(premise,
+                                                      hypothesis,
+                                                      args.batch_size,
+                                                      topk=args.topk)
 
         topk_exp = [
             k for k, _ in sorted(explanation.items(), key=lambda x: x[1], reverse=True)
         ][:args.topk]  # TODO: here, topk means sth different
-        sep_position = tokens.index(tokenizer.sep_token)
+        sep_position = tokens.index(explainer.tokenizer.sep_token)
 
         if args.format == 'token':
             token_idx = set(chain.from_iterable(topk_exp))
