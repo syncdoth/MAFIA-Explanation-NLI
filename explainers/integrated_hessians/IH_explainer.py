@@ -53,7 +53,6 @@ class IHBertExplainer:
                 premise,
                 hypothesis,
                 output_indices=None,
-                topk=None,
                 batch_size=32,
                 num_samples=256,
                 use_expectation=False):
