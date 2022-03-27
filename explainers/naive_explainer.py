@@ -21,11 +21,15 @@ class NaiveExplainer:
         self.baseline_token = baseline_token
         self.interaction_occlusion = interaction_occlusion
 
-    def explain(self, premise, hypothesis, target_class=None, topk=None, sent_k=None):
+    def explain(self,
+                premise,
+                hypothesis,
+                target_class=None,
+                sent_k=None,
+                return_cache=False):
         """
         explain with naive occlusion: pairwise interaction
 
-        topk = total topk
         sent_k = topk within each sent. Not needed if not for very long sents.
 
         interaction_occlusion: Either to use
@@ -76,7 +80,7 @@ class NaiveExplainer:
             hyp_topk = list(range(len(perturbed_hyp)))
 
         top_pairs = list(itertools.product(pre_topk, hyp_topk))
-        attributions = []
+        explanation = {}
         for pair in top_pairs:
             inp = self.tokenizer(perturbed_premise[pair[0]],
                                  text_pair=perturbed_hyp[pair[1]],
@@ -88,21 +92,16 @@ class NaiveExplainer:
                     pair[1]] + conf
             else:
                 effect = orig_confidence - conf
-            if effect < 0:  # if confidence rises:
-                continue
-            attributions.append(effect)
+            explanation[pair] = effect
 
-        # array indexing is None-safe!
-        if topk is not None:
-            topk_interactions = sorted(zip(top_pairs, attributions),
-                                       key=lambda x: x[1],
-                                       reverse=True)[:topk]
-            topk_pairs = [x[0] for x in topk_interactions]
-            topk_attributions = [x[1] for x in topk_interactions]
-            return topk_pairs, tokens, pred_class, (topk_attributions, orig_confidence)
+        return_value = (explanation, tokens, pred_class)
+        cache = (orig_confidence,)
 
-        return top_pairs, tokens, pred_class, (attributions, orig_confidence)
+        if return_cache:
+            return return_value + cache
+        return return_value
 
+    # deprecated
     def analyze_result(self, premise, hypothesis, prediction, confidence, conf_drops,
                        perturbations):
         print('premise:', premise)
