@@ -48,7 +48,7 @@ class ArchExplainerInterface:
         else:
             raise NotImplementedError
 
-    def explain(self, premise, hypothesis, topk=5, batch_size=32):
+    def explain(self, premise, hypothesis, topk=5, batch_size=32, do_cross_merge=False):
 
         text_inputs, baseline_ids = get_input_baseline_ids(premise,
                                                            self.baseline_token,
@@ -67,7 +67,9 @@ class ArchExplainerInterface:
                                     output_indices=pred,
                                     batch_size=batch_size)
         # TODO: here, topk means sth different
-        explanation = apgo.explain(top_k=topk, use_embedding=True)
+        explanation = apgo.explain(top_k=topk,
+                                   use_embedding=True,
+                                   do_cross_merge=do_cross_merge)
         tokens = get_token_list(text_inputs['input_ids'], self.tokenizer)
         explanation, tokens = process_stop_words(explanation, tokens)
 

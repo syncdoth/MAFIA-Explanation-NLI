@@ -61,6 +61,7 @@ def main():
                         type=str,
                         default='token',
                         choices=['token', 'interaction'])
+    parser.add_argument('--do_cross_merge', action='store_true')
     args = parser.parse_args()
 
     data = load_df(args.data_root, mode=args.mode)
@@ -73,7 +74,9 @@ def main():
                                            device=device,
                                            baseline_token=args.baseline_token,
                                            explainer_class=args.explainer)
-        explain_kwargs = dict(batch_size=args.batch_size, topk=args.topk)
+        explain_kwargs = dict(batch_size=args.batch_size,
+                              topk=args.topk,
+                              do_cross_merge=args.do_cross_merge)
     elif 'naive' in args.explainer:
         explainer = NaiveExplainer(args.model_name,
                                    device=device,
