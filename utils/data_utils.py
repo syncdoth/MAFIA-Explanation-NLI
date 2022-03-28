@@ -8,7 +8,9 @@ from nltk.corpus import stopwords
 
 
 def perturb_text(text, baseline_token='[MASK]'):
-    text_list = text.split(' ')
+    text_list = [
+        w.translate(str.maketrans('', '', string.punctuation)) for w in text.split(' ')
+    ]
     text_perturbed = []
     for i, delete in enumerate(text.split(' ')):
         if delete.lower() in set(stopwords.words('english')):
@@ -17,7 +19,7 @@ def perturb_text(text, baseline_token='[MASK]'):
             (' '.join([baseline_token if w == delete else w for w in text_list]), (delete,
                                                                                    i)))
 
-    return text_perturbed
+    return text_perturbed, text_list
 
 
 def get_contiguous_phrases(text, tokens):

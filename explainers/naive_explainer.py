@@ -44,14 +44,13 @@ class NaiveExplainer(ExplainerInterface):
             target_class = pred_class.item()
         orig_confidence = orig_confidence.item()
 
-        pre_tokens = premise.split(' ')
-        hyp_tokens = hypothesis.split(' ')
+        # perturb inputs
+        perturbed_premise, pre_tokens = perturb_text(premise,
+                                                     baseline_token=self.baseline_token)
+        perturbed_hyp, hyp_tokens = perturb_text(hypothesis,
+                                                 baseline_token=self.baseline_token)
         tokens = [self.tokenizer.cls_token] + pre_tokens \
                + [self.tokenizer.sep_token] + hyp_tokens + [self.tokenizer.sep_token]
-
-        # perturb inputs
-        perturbed_premise = perturb_text(premise, baseline_token=self.baseline_token)
-        perturbed_hyp = perturb_text(hypothesis, baseline_token=self.baseline_token)
 
         if sent_k is not None or self.interaction_occlusion:
             # premise first
