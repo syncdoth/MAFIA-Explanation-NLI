@@ -256,7 +256,7 @@ def run(data, explanations, args):
     elif args.metric == 'interaction_precision':
         results = pd.DataFrame({'interaction_precision': [scores.mean()]})
 
-    save_name = f'{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}'
+    save_name = f'eval_results/{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}_BT={args.baseline_token}'
     if args.test_annotator > 0:
         save_name = f'annotator{args.test_annotator}_{args.metric}_{args.mode}_{args.how}'
 
