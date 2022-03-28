@@ -118,6 +118,7 @@ class Archipelago(Explainer):
         )
         self.inter_sets = None
         self.main_effects = None
+        self.sep_pos = self.data_xformer.sep_pos
 
     def reset(self):
         self.inter_sets = None
@@ -415,8 +416,6 @@ class CrossArchipelago(Archipelago):
             batch_size=batch_size,
             verbose=verbose,
         )
-
-        self.sep_pos = self.data_xformer.sep_pos
 
     def batch_set_inference(self,
                             set_indices,
