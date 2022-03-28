@@ -157,7 +157,11 @@ def load_df(data_path,
                explanation
     format: should the rationale be in `token` format or `interaction` format
     """
-    df = pd.read_csv(os.path.join(data_path, f'esnli_{mode}_processed.csv'))
+    if data_path.endswith('.csv'):
+        # if full path is given, load from it
+        df = pd.read_csv(data_path)
+    else:
+        df = pd.read_csv(os.path.join(data_path, f'esnli_{mode}_processed.csv'))
     # get sentences
     sent1 = df['Sentence1'].tolist()
     sent2 = df['Sentence2'].tolist()

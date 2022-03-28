@@ -89,9 +89,7 @@ def main():
         explainer = IHBertExplainer(args.model_name,
                                     device=device,
                                     baseline_token=args.baseline_token)
-        explain_kwargs = dict(batch_size=args.batch_size,
-                              num_samples=128,
-                              use_expectation=False)
+        explain_kwargs = dict(batch_size=24, num_samples=128, use_expectation=False)
     else:
         raise NotImplementedError
 
