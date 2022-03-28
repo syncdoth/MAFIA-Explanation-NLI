@@ -204,7 +204,8 @@ class Archipelago(Explainer):
                 top_k=None,
                 separate_effects=False,
                 use_embedding=False,
-                do_cross_merge=False):
+                do_cross_merge=False,
+                get_pairwise_effects=False):
         if (self.inter_sets is None) or (self.main_effects is None):
             detection_dict = self.archdetect(get_pairwise_effects=False,
                                              use_embedding=use_embedding)
@@ -219,7 +220,7 @@ class Archipelago(Explainer):
         else:
             raise ValueError("top_k must be int or None")
 
-        if do_cross_merge:
+        if not get_pairwise_effects and do_cross_merge:
             pre_set, cross_set, hyp_set = [], [], []
             for inter_set in thresholded_inter_sets:
                 if inter_set[0] < self.sep_pos and inter_set[1] < self.sep_pos:
@@ -230,14 +231,16 @@ class Archipelago(Explainer):
                     hyp_set.append([inter_set, {}])
 
             inter_sets_merged = cross_merge(pre_set, cross_set, hyp_set)
-        else:
+        elif not get_pairwise_effects:
             inter_sets_merged = merge_overlapping_sets(thresholded_inter_sets)
+        else:
+            inter_sets_merged = thresholded_inter_sets
         inter_effects = self.archattribute(inter_sets_merged)
 
         if separate_effects:
             return inter_effects, self.main_effects
 
-        if do_cross_merge:
+        if do_cross_merge or get_pairwise_effects:
             merged_indices = set(inter_effects.keys())
             for idx in self.main_effects.keys():
                 if idx not in chain.from_iterable(inter_effects.keys()):
@@ -564,7 +567,7 @@ class CrossArchipelago(Archipelago):
         get_main_effects=True,
         get_pairwise_effects=True,
         single_context=False,
-        cross_sent_context=False,
+        cross_sent_context=True,
         weights=[0.25, 0.25, 0.25, 0.25],
         use_embedding=False,
     ):
@@ -656,7 +659,14 @@ class CrossArchipelago(Archipelago):
                 separate_effects=False,
                 use_embedding=False,
                 cross_sent_context=True,
-                do_cross_merge=False):
+                do_cross_merge=False,
+                get_pairwise_effects=False):
+        """
+        get_pairwise_effects is different from all other file: just don't merge
+        at the end.
+        """
+        if get_pairwise_effects:
+            do_cross_merge = False
         if (self.inter_sets is None) or (self.main_effects is None):
             detection_dict = self.archdetect(get_pairwise_effects=False,
                                              use_embedding=use_embedding,
@@ -687,7 +697,7 @@ class CrossArchipelago(Archipelago):
         else:
             raise ValueError("top_k must be int or None")
 
-        if do_cross_merge:
+        if not get_pairwise_effects and do_cross_merge:
             pre_set, cross_set, hyp_set = [], [], []
             for inter_set in thresholded_inter_sets:
                 if inter_set[0][0] < self.sep_pos and inter_set[0][1] < self.sep_pos:
@@ -698,15 +708,17 @@ class CrossArchipelago(Archipelago):
                     hyp_set.append(inter_set)
 
             inter_sets_merged = cross_merge(pre_set, cross_set, hyp_set)
-        else:
+        elif not get_pairwise_effects:
             inter_sets_merged = merge_overlapping_sets(
                 [pair for pair, _ in thresholded_inter_sets])
+        else:
+            inter_sets_merged = [pair for pair, _ in thresholded_inter_sets]
         inter_effects = self.archattribute(inter_sets_merged)
 
         if separate_effects:
             return inter_effects, self.main_effects
 
-        if do_cross_merge:
+        if do_cross_merge or get_pairwise_effects:
             merged_indices = set(inter_effects.keys())
             for idx in self.main_effects.keys():
                 if idx not in chain.from_iterable(inter_effects.keys()):

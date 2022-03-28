@@ -52,8 +52,8 @@ def main():
                         type=str,
                         default='arch',
                         choices=[
-                            'arch', 'cross_arch', 'naive_occlusion',
-                            'naive_interaction_occlusion', 'IH'
+                            'arch', 'cross_arch', 'arch_pair', 'cross_arch_pair',
+                            'naive_occlusion', 'naive_interaction_occlusion', 'IH'
                         ])
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--topk', type=int, default=5)

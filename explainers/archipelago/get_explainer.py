@@ -42,12 +42,15 @@ class ArchExplainerInterface(ExplainerInterface):
             self.baseline_token = baseline_token
             self.xformer_class = TextXformer
 
-        if explainer_class == 'arch':
-            self.explainer_class = Archipelago
-        elif explainer_class == 'cross_arch':
+        if 'cross_arch' in explainer_class:
             self.explainer_class = CrossArchipelago
+        elif 'arch' in explainer_class:
+            self.explainer_class = Archipelago
         else:
             raise NotImplementedError
+
+        # if pairwise, we use archdetect only
+        self.pairwise = True if 'pair' in explainer_class else False
 
     def explain(self, premise, hypothesis, topk=5, batch_size=32, do_cross_merge=False):
 
@@ -70,7 +73,8 @@ class ArchExplainerInterface(ExplainerInterface):
         # TODO: here, topk means sth different
         explanation = apgo.explain(top_k=topk,
                                    use_embedding=True,
-                                   do_cross_merge=do_cross_merge)
+                                   do_cross_merge=do_cross_merge,
+                                   get_pairwise_effects=self.pairwise)
         tokens = get_token_list(text_inputs['input_ids'], self.tokenizer)
         explanation, tokens = process_stop_words(explanation, tokens)
 
