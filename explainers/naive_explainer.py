@@ -104,9 +104,10 @@ class NaiveExplainer(ExplainerInterface):
             explanation[pair_idx] = effect
 
         if do_cross_merge:
+            explanation = sorted(explanation.items(), key=lambda x: x[1], reverse=True)
             sep_pos = tokens.index(self.tokenizer.sep_token)
             pre_set, cross_set, hyp_set = [], [], []
-            for inter_set, strength in explanation.items():
+            for inter_set, strength in explanation:
                 if inter_set[0] < sep_pos and inter_set[1] < sep_pos:
                     pre_set.append([inter_set, {'all': strength}])
                 elif inter_set[0] < sep_pos and inter_set[1] > sep_pos:

@@ -90,9 +90,10 @@ class IHBertExplainer(ExplainerInterface):
                         for j in range(interactions.shape[1])}
 
         if do_cross_merge:
+            explanations = sorted(explanations.items(), key=lambda x: x[1], reverse=True)
             sep_pos = batch_sentences.index(self.tokenizer.sep_token)
             pre_set, cross_set, hyp_set = [], [], []
-            for inter_set, strength in explanations.items():
+            for inter_set, strength in explanations:
                 if inter_set[0] < sep_pos and inter_set[1] < sep_pos:
                     pre_set.append([inter_set, {'all': strength}])
                 elif inter_set[0] < sep_pos and inter_set[1] > sep_pos:

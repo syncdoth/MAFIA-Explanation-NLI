@@ -206,6 +206,10 @@ class Archipelago(Explainer):
                 use_embedding=False,
                 do_cross_merge=False,
                 get_pairwise_effects=False):
+        if get_pairwise_effects:
+            do_cross_merge = False
+        if do_cross_merge:
+            top_k = None
         if (self.inter_sets is None) or (self.main_effects is None):
             detection_dict = self.archdetect(get_pairwise_effects=False,
                                              use_embedding=use_embedding)
@@ -667,6 +671,8 @@ class CrossArchipelago(Archipelago):
         """
         if get_pairwise_effects:
             do_cross_merge = False
+        if do_cross_merge:
+            top_k = None
         if (self.inter_sets is None) or (self.main_effects is None):
             detection_dict = self.archdetect(get_pairwise_effects=False,
                                              use_embedding=use_embedding,
@@ -759,14 +765,16 @@ def cross_merge(pre_set, cross_set, hyp_set, sum_strength=False):
         for i, pre in enumerate(pre_set):
             if cross[0][0] in pre[0] and i not in used['pre']:
                 feature_group = sorted(set(feature_group + list(pre[0])))
-                feature_strengths += pre[1]['all']
+                if sum_strength:
+                    feature_strengths += pre[1]['all']
                 used['pre'].add(i)
                 break
 
         for j, hyp in enumerate(hyp_set):
             if cross[0][1] in hyp[0] and j not in used['hyp']:
                 feature_group = sorted(set(feature_group + list(hyp[0])))
-                feature_strengths += hyp[1]['all']
+                if sum_strength:
+                    feature_strengths += hyp[1]['all']
                 used['hyp'].add(j)
                 break
         if sum_strength:
