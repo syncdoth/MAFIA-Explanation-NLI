@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from utils.data_utils import perturb_text
 from explainers.base_explainer import ExplainerInterface
+from explainers.archipelago.explainer import cross_merge
 
 
 class NaiveExplainer(ExplainerInterface):
@@ -25,7 +26,8 @@ class NaiveExplainer(ExplainerInterface):
                 hypothesis,
                 target_class=None,
                 sent_k=None,
-                return_cache=False):
+                return_cache=False,
+                do_cross_merge=False):
         """
         explain with naive occlusion: pairwise interaction
 
@@ -101,6 +103,19 @@ class NaiveExplainer(ExplainerInterface):
             pair_idx = (perturbed_premise[pair[0]][1][1] + 1,
                         perturbed_hyp[pair[1]][1][1] + len(pre_tokens) + 2)
             explanation[pair_idx] = effect
+
+        if do_cross_merge:
+            sep_pos = tokens.index(self.tokenizer.sep_token)
+            pre_set, cross_set, hyp_set = [], [], []
+            for inter_set, strength in explanation.items():
+                if inter_set[0] < sep_pos and inter_set[1] < sep_pos:
+                    pre_set.append([inter_set, {'all': strength}])
+                elif inter_set[0] < sep_pos and inter_set[1] > sep_pos:
+                    cross_set.append([inter_set, {'all': strength}])
+                else:
+                    hyp_set.append([inter_set, {'all': strength}])
+
+            explanation = cross_merge(pre_set, cross_set, hyp_set, sum_strength=True)
 
         return_value = (explanation, tokens, pred_class.item())
         cache = (orig_confidence,)

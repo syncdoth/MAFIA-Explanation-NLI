@@ -728,26 +728,38 @@ class CrossArchipelago(Archipelago):
         return merged_explanation
 
 
-def cross_merge(pre_set, cross_set, hyp_set):
+def cross_merge(pre_set, cross_set, hyp_set, sum_strength=False):
     """
     *_set:  [(idx1, idx2), {pre: score, hyp: score, all: score}]
+    sum_strength: get sum of merged interaction strengths. if True,
+        {(interaction): strength}
+        if false, [(interaction)]
     """
-    merged = []
+    if sum_strength:
+        merged = {}
+    else:
+        merged = []
     used = {'pre': set(), 'hyp': set()}
     for cross in cross_set:
         feature_group = list(cross[0])
+        if sum_strength:
+            feature_strengths = cross[1]['all']
         for i, pre in enumerate(pre_set):
             if cross[0][0] in pre[0] and i not in used['pre']:
                 feature_group = sorted(set(feature_group + list(pre[0])))
+                feature_strengths += pre[1]['all']
                 used['pre'].add(i)
                 break
 
         for j, hyp in enumerate(hyp_set):
             if cross[0][1] in hyp[0] and j not in used['hyp']:
                 feature_group = sorted(set(feature_group + list(hyp[0])))
+                feature_strengths += hyp[1]['all']
                 used['hyp'].add(j)
                 break
-
-        merged.append(tuple(feature_group))
+        if sum_strength:
+            merged[tuple(feature_group)] = feature_strengths
+        else:
+            merged.append(tuple(feature_group))
 
     return merged

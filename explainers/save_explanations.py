@@ -82,14 +82,17 @@ def main():
                                    device=device,
                                    baseline_token=args.baseline_token,
                                    interaction_occlusion='interaction' in args.explainer)
-        explain_kwargs = dict(return_cache=False)
+        explain_kwargs = dict(return_cache=False, do_cross_merge=args.do_cross_merge)
     elif args.explainer == 'IH':
         # NOTE: currently, IH only support Bert
         args.model_name = 'bert-base'
         explainer = IHBertExplainer(args.model_name,
                                     device=device,
                                     baseline_token=args.baseline_token)
-        explain_kwargs = dict(batch_size=24, num_samples=128, use_expectation=False)
+        explain_kwargs = dict(batch_size=24,
+                              num_samples=128,
+                              use_expectation=False,
+                              do_cross_merge=args.do_cross_merge)
     else:
         raise NotImplementedError
 

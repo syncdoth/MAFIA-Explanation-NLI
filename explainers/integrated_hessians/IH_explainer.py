@@ -10,6 +10,7 @@ import torch
 from explainers.base_explainer import ExplainerInterface
 from explainers.integrated_hessians.path_explain.explainers.embedding_explainer_torch import \
     EmbeddingExplainerTorch
+from explainers.archipelago.explainer import cross_merge
 
 
 class IHBertExplainer(ExplainerInterface):
@@ -48,12 +49,14 @@ class IHBertExplainer(ExplainerInterface):
                 output_indices=None,
                 batch_size=32,
                 num_samples=256,
-                use_expectation=False):
+                use_expectation=False,
+                do_cross_merge=False):
         inputs = self.tokenizer(premise, text_pair=hypothesis,
                                 return_tensors='pt').to(self.device)
         ### First we need to decode the tokens from the batch ids.
         batch_sentences = self.tokenizer.tokenize(
-            f'[CLS] {premise} [SEP] {hypothesis} [SEP]')
+            f'{self.tokenizer.cls_token} {premise} {self.tokenizer.sep_token}'
+            f' {hypothesis} {self.tokenizer.sep_token}')
         batch_ids = inputs['input_ids']
         inputs.pop('attention_mask')
         batch_embedding = self.embedding_model(**inputs).detach()
@@ -85,4 +88,17 @@ class IHBertExplainer(ExplainerInterface):
         interactions = interactions[0]  # [T, T]
         explanations = {(i, j): interactions[i, j] for i in range(interactions.shape[0])
                         for j in range(interactions.shape[1])}
+
+        if do_cross_merge:
+            sep_pos = batch_sentences.index(self.tokenizer.sep_token)
+            pre_set, cross_set, hyp_set = [], [], []
+            for inter_set, strength in explanations.items():
+                if inter_set[0] < sep_pos and inter_set[1] < sep_pos:
+                    pre_set.append([inter_set, {'all': strength}])
+                elif inter_set[0] < sep_pos and inter_set[1] > sep_pos:
+                    cross_set.append([inter_set, {'all': strength}])
+                else:
+                    hyp_set.append([inter_set, {'all': strength}])
+
+            explanations = cross_merge(pre_set, cross_set, hyp_set, sum_strength=True)
         return explanations, batch_sentences, pred_label
