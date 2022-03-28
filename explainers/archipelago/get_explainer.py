@@ -16,10 +16,11 @@ from explainers.archipelago.application_utils.text_utils import (AttentionXforme
 from explainers.archipelago.application_utils.text_utils_torch import \
     BertWrapperTorch
 from explainers.archipelago.explainer import Archipelago, CrossArchipelago
+from explainers.base_explainer import ExplainerInterface
 from utils.utils import load_pretrained_config
 
 
-class ArchExplainerInterface:
+class ArchExplainerInterface(ExplainerInterface):
 
     def __init__(self,
                  model_name,
@@ -74,8 +75,3 @@ class ArchExplainerInterface:
         explanation, tokens = process_stop_words(explanation, tokens)
 
         return explanation, tokens, pred
-
-    def get_label_map(self, inv=False):
-        if inv:
-            return {idx: label for label, idx in self.label_map.items()}
-        return self.label_map

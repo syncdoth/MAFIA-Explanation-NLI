@@ -90,7 +90,7 @@ def main():
                                     device=device,
                                     baseline_token=args.baseline_token)
         explain_kwargs = dict(batch_size=args.batch_size,
-                              num_samples=256,
+                              num_samples=128,
                               use_expectation=False)
     else:
         raise NotImplementedError

@@ -6,23 +6,16 @@ import sys
 sys.path.insert(0, '/data/schoiaj/repos/nli_explain')
 
 import torch
-from transformers import BertForSequenceClassification, BertTokenizer
 
-from utils.utils import load_pretrained_config
+from explainers.base_explainer import ExplainerInterface
 from explainers.integrated_hessians.path_explain.explainers.embedding_explainer_torch import \
     EmbeddingExplainerTorch
 
 
-class IHBertExplainer:
+class IHBertExplainer(ExplainerInterface):
 
     def __init__(self, model_name, device='cpu', baseline_token='[MASK]'):
-        config = load_pretrained_config(model_name)
-        self.tokenizer = BertTokenizer.from_pretrained(config['model_card'])
-        self.model = BertForSequenceClassification.from_pretrained(
-            config['model_card']).to(device)
-        self.label_map = config['label_map']
-        self.device = device
-        self.baseline_token = baseline_token
+        super().__init__(model_name, device=device, baseline_token=baseline_token)
 
         self.explainer = EmbeddingExplainerTorch(self.prediction_model)
 
@@ -65,8 +58,9 @@ class IHBertExplainer:
         inputs.pop('attention_mask')
         batch_embedding = self.embedding_model(**inputs).detach()
 
-        baseline_ids = torch.where(batch_ids == self.tokenizer.sep_token_id,
-                                   self.tokenizer.sep_token_id, self.baseline_token)
+        baseline_ids = torch.where(
+            batch_ids == self.tokenizer.sep_token_id, self.tokenizer.sep_token_id,
+            self.tokenizer.encode(self.baseline_token, add_special_tokens=False)[0])
         baseline_ids[:, 0] = self.tokenizer.cls_token_id
         baseline_inputs = {k: v for k, v in inputs.items()}
         baseline_inputs['input_ids'] = baseline_ids
@@ -86,6 +80,9 @@ class IHBertExplainer:
             num_samples=num_samples,
             use_expectation=use_expectation,
             output_indices=pred_label if output_indices is None else output_indices,
-            verbose=False)
+            verbose=False)  # [bs, T, T]
 
-        return interactions, batch_sentences, pred_label
+        interactions = interactions[0]  # [T, T]
+        explanations = {(i, j): interactions[i, j] for i in range(interactions.shape[0])
+                        for j in range(interactions.shape[1])}
+        return explanations, batch_sentences, pred_label

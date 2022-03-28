@@ -1,24 +1,24 @@
+import sys
+
+sys.path.insert(0, '/data/schoiaj/repos/nli_explain')
+
 import itertools
 
 import numpy as np
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from utils.data_utils import perturb_text
 from explainers.archipelago.application_utils.text_utils import get_token_list
+from explainers.base_explainer import ExplainerInterface
 
 
-class NaiveExplainer:
+class NaiveExplainer(ExplainerInterface):
 
     def __init__(self,
                  model_name,
                  device='cpu',
                  baseline_token='[MASK]',
                  interaction_occlusion=False):
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_name).to(
-            device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.device = device
-        self.baseline_token = baseline_token
+        super().__init__(model_name, device=device, baseline_token=baseline_token)
         self.interaction_occlusion = interaction_occlusion
 
     def explain(self,
@@ -43,7 +43,7 @@ class NaiveExplainer:
             target_class = pred_class.item()
         orig_confidence = orig_confidence.item()
 
-        tokens = get_token_list(full_inp['input_ids'], self.tokenizer)
+        tokens = get_token_list(full_inp['input_ids'][0], self.tokenizer)
 
         # perturb inputs
         perturbed_premise = perturb_text(premise, baseline_token=self.baseline_token)
@@ -82,8 +82,8 @@ class NaiveExplainer:
         top_pairs = list(itertools.product(pre_topk, hyp_topk))
         explanation = {}
         for pair in top_pairs:
-            inp = self.tokenizer(perturbed_premise[pair[0]],
-                                 text_pair=perturbed_hyp[pair[1]],
+            inp = self.tokenizer(perturbed_premise[pair[0]][0],
+                                 text_pair=perturbed_hyp[pair[1]][0],
                                  return_tensors='pt')
             conf = torch.softmax(self.model(**inp.to(self.device)).logits[0],
                                  dim=-1)[target_class].item()
@@ -94,7 +94,7 @@ class NaiveExplainer:
                 effect = orig_confidence - conf
             explanation[pair] = effect
 
-        return_value = (explanation, tokens, pred_class)
+        return_value = (explanation, tokens, pred_class.item())
         cache = (orig_confidence,)
 
         if return_cache:
