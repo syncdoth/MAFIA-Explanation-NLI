@@ -7,7 +7,6 @@ import itertools
 import numpy as np
 import torch
 from utils.data_utils import perturb_text
-from explainers.archipelago.application_utils.text_utils import get_token_list
 from explainers.base_explainer import ExplainerInterface
 
 
@@ -43,7 +42,10 @@ class NaiveExplainer(ExplainerInterface):
             target_class = pred_class.item()
         orig_confidence = orig_confidence.item()
 
-        tokens = get_token_list(full_inp['input_ids'][0], self.tokenizer)
+        pre_tokens = premise.split(' ')
+        hyp_tokens = hypothesis.split(' ')
+        tokens = [self.tokenizer.cls_token] + pre_tokens \
+               + [self.tokenizer.sep_token] + hyp_tokens + [self.tokenizer.sep_token]
 
         # perturb inputs
         perturbed_premise = perturb_text(premise, baseline_token=self.baseline_token)
@@ -88,11 +90,17 @@ class NaiveExplainer(ExplainerInterface):
             conf = torch.softmax(self.model(**inp.to(self.device)).logits[0],
                                  dim=-1)[target_class].item()
             if self.interaction_occlusion:
-                effect = orig_confidence - pre_confidences[pair[0]] - pre_confidences[
+                effect = orig_confidence - pre_confidences[pair[0]] - hyp_confidences[
                     pair[1]] + conf
             else:
                 effect = orig_confidence - conf
-            explanation[pair] = effect
+
+            # the pair idx should be in terms of full tokens: not pre and hyp separated.
+            # original premise idx + 1 (reason: cls)
+            # original hyp idx + len(premise) + 2 (reason: cls, sep)
+            pair_idx = (perturbed_premise[pair[0]][1][1] + 1,
+                        perturbed_hyp[pair[1]][1][1] + len(pre_tokens) + 2)
+            explanation[pair_idx] = effect
 
         return_value = (explanation, tokens, pred_class.item())
         cache = (orig_confidence,)

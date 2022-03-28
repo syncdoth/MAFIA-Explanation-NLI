@@ -10,11 +10,12 @@ from nltk.corpus import stopwords
 def perturb_text(text, baseline_token='[MASK]'):
     text_list = text.split(' ')
     text_perturbed = []
-    for delete in text.split(' '):
+    for i, delete in enumerate(text.split(' ')):
         if delete.lower() in set(stopwords.words('english')):
             continue
         text_perturbed.append(
-            (' '.join([baseline_token if w == delete else w for w in text_list]), delete))
+            (' '.join([baseline_token if w == delete else w for w in text_list]), (delete,
+                                                                                   i)))
 
     return text_perturbed
 
