@@ -89,31 +89,35 @@ def main():
         explainer = IHBertExplainer(args.model_name,
                                     device=device,
                                     baseline_token=args.baseline_token)
-        explain_kwargs = dict(batch_size=24,
+        explain_kwargs = dict(batch_size=16,
                               num_samples=128,
                               use_expectation=False,
                               do_cross_merge=args.do_cross_merge)
     else:
         raise NotImplementedError
 
-    all_explanations = run(sent_data, explainer, args, **explain_kwargs)
-    with open(
-            f'explanations/{args.model_name}_{args.explainer}_{args.topk}_{args.mode}_BT={args.baseline_token}_{args.format}.json',
-            'w') as f:
-        json.dump(all_explanations, f, indent=4)
+    explanation_fname = f'explanations/{args.model_name}_{args.explainer}_{args.topk}_{args.mode}_BT={args.baseline_token}_{args.format}'
+
+    if args.do_cross_merge:
+        explanation_fname += '_X'
+    write_file = open(f'{explanation_fname}.json', 'a')
+    write_file.write('[\n')
+    run(sent_data, explainer, write_file, args, **explain_kwargs)
+    write_file.write(']')
+    write_file.close()
 
 
-def run(data, explainer, args, **explain_kwargs):
+def run(data, explainer, out_file, args, **explain_kwargs):
     inv_label_map = explainer.get_label_map(inv=True)
 
-    all_explanations = []
-    pbar = tqdm(zip(*data), total=len(data[0]))
-    for premise, hypothesis in pbar:
+    pbar = tqdm(enumerate(zip(*data)), total=len(data[0]))
+    for i, (premise, hypothesis) in pbar:
         explanation, tokens, pred = explainer.explain(premise, hypothesis,
                                                       **explain_kwargs)
 
         topk_exp = [
-            k for k, _ in sorted(explanation.items(), key=lambda x: x[1], reverse=True)
+            k for k, v in sorted(explanation.items(), key=lambda x: x[1], reverse=True)
+            if v > 0
         ][:args.topk]
         sep_position = tokens.index(explainer.tokenizer.sep_token)
 
@@ -122,45 +126,49 @@ def run(data, explainer, args, **explain_kwargs):
             pre_rat = []
             hyp_rat = []
             for idx in token_idx:
-                token = process_token(tokens, idx - 1)
+                token = process_token(tokens, idx)
                 if token in string.punctuation:
                     continue
-                if (idx - 1) < sep_position:
+                if idx < sep_position:
                     pre_rat.append(token)
-                if (idx - 1) > sep_position and 'bert' in args.model_name:
+                if idx > sep_position and 'bert' in args.model_name:
                     hyp_rat.append(token)
-                elif (idx - 1) > sep_position + 1 and 'roberta' in args.model_name:
+                elif idx > sep_position + 1 and 'roberta' in args.model_name:
                     # TODO: why +1 ?
                     hyp_rat.append(token)
 
-            all_explanations.append({
+            current_explanation = {
                 'pred_label': inv_label_map[pred],
                 'premise_rationales': pre_rat,
                 'hypothesis_rationales': hyp_rat,
-            })
+            }
         elif args.format == 'interaction':
             rationales = []
             for interaction in topk_exp:
                 pre_group = []
                 hyp_group = []
                 for idx in interaction:
-                    token = process_token(tokens, idx - 1)
-                    if (idx - 1) < sep_position:
+                    token = process_token(tokens, idx)
+                    if idx < sep_position:
                         pre_group.append(token)
-                    if (idx - 1) > sep_position and 'bert' in args.model_name:
+                    if idx > sep_position and 'bert' in args.model_name:
                         hyp_group.append(token)
-                    elif (idx - 1) > sep_position + 1 and 'roberta' in args.model_name:
+                    elif idx > sep_position + 1 and 'roberta' in args.model_name:
                         hyp_group.append(token)
                 rationales.append([tuple(pre_group), tuple(hyp_group)])
-            all_explanations.append({
+            current_explanation = {
                 'pred_label': inv_label_map[pred],
                 'pred_rationales': rationales,
-            })
+            }
 
         else:
             raise NotImplementedError
 
-    return all_explanations
+        json.dump(current_explanation, out_file, indent=4)
+        if i == len(data[0]) - 1:
+            out_file.write('\n')
+        else:
+            out_file.write(',\n')
 
 
 if __name__ == "__main__":

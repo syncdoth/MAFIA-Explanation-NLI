@@ -76,6 +76,10 @@ class ArchExplainerInterface(ExplainerInterface):
                                    do_cross_merge=do_cross_merge,
                                    get_pairwise_effects=self.pairwise)
         tokens = get_token_list(text_inputs['input_ids'], self.tokenizer)
-        explanation, tokens = process_stop_words(explanation, tokens)
+        explanation, tokens = process_stop_words(explanation,
+                                                 tokens,
+                                                 strip_first_last=False)
+        explanation.pop((0,))
+        explanation.pop((len(tokens) - 1,))
 
         return explanation, tokens, pred
