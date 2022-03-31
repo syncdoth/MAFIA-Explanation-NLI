@@ -1,5 +1,6 @@
 import numpy as np
 import copy
+import string
 
 
 def get_efficient_mask_indices(inst, baseline, input):
@@ -128,7 +129,7 @@ def process_stop_words(explanation, tokens, strip_first_last=True):
         "with",
         "s",
         "ll",
-    ])
+    ] + list(string.punctuation))
     for i, token in enumerate(tokens):
         if token in stop_words:
             if (i,) in explanation:
