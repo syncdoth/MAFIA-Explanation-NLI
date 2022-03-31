@@ -50,7 +50,10 @@ class IHBertExplainer(ExplainerInterface):
                 batch_size=32,
                 num_samples=256,
                 use_expectation=False,
-                do_cross_merge=False):
+                do_cross_merge=False,
+                get_cross_effects=False):
+        if get_cross_effects:
+            do_cross_merge = False
         inputs = self.tokenizer(premise, text_pair=hypothesis,
                                 return_tensors='pt').to(self.device)
         ### First we need to decode the tokens from the batch ids.
@@ -89,7 +92,7 @@ class IHBertExplainer(ExplainerInterface):
         explanations = {(i, j): interactions[i, j] for i in range(interactions.shape[0])
                         for j in range(interactions.shape[1])}
 
-        if do_cross_merge:
+        if do_cross_merge or get_cross_effects:
             explanations = sorted(explanations.items(), key=lambda x: x[1], reverse=True)
             sep_pos = batch_sentences.index(self.tokenizer.sep_token)
             pre_set, cross_set, hyp_set = [], [], []
@@ -100,6 +103,8 @@ class IHBertExplainer(ExplainerInterface):
                     cross_set.append([inter_set, {'all': strength}])
                 else:
                     hyp_set.append([inter_set, {'all': strength}])
-
-            explanations = cross_merge(pre_set, cross_set, hyp_set, sum_strength=True)
+            if do_cross_merge:
+                explanations = cross_merge(pre_set, cross_set, hyp_set, sum_strength=True)
+            else:
+                explanations = {pair: strength['all'] for pair, strength in cross_set}
         return explanations, batch_sentences, pred_label
