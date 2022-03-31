@@ -71,15 +71,14 @@ class ArchExplainerInterface(ExplainerInterface):
                                     output_indices=pred,
                                     batch_size=batch_size)
         # TODO: here, topk means sth different
-        explanation = apgo.explain(top_k=topk,
-                                   use_embedding=True,
-                                   do_cross_merge=do_cross_merge,
-                                   get_pairwise_effects=self.pairwise)
+        explanation, _ = apgo.explain(top_k=topk,
+                                      use_embedding=True,
+                                      do_cross_merge=do_cross_merge,
+                                      get_cross_effects=self.pairwise,
+                                      separate_effects=True)
         tokens = get_token_list(text_inputs['input_ids'], self.tokenizer)
         explanation, tokens = process_stop_words(explanation,
                                                  tokens,
                                                  strip_first_last=False)
-        explanation.pop((0,))
-        explanation.pop((len(tokens) - 1,))
 
         return explanation, tokens, pred

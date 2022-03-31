@@ -1,5 +1,5 @@
 import numpy as np
-from itertools import chain
+from itertools import chain, product
 
 
 class Explainer:
@@ -205,8 +205,8 @@ class Archipelago(Explainer):
                 separate_effects=False,
                 use_embedding=False,
                 do_cross_merge=False,
-                get_pairwise_effects=False):
-        if get_pairwise_effects:
+                get_cross_effects=False):
+        if get_cross_effects:
             do_cross_merge = False
         if do_cross_merge:
             top_k = None
@@ -224,7 +224,7 @@ class Archipelago(Explainer):
         else:
             raise ValueError("top_k must be int or None")
 
-        if not get_pairwise_effects and do_cross_merge:
+        if get_cross_effects or do_cross_merge:
             pre_set, cross_set, hyp_set = [], [], []
             for inter_set in thresholded_inter_sets:
                 if inter_set[0] < self.sep_pos and inter_set[1] < self.sep_pos:
@@ -233,22 +233,24 @@ class Archipelago(Explainer):
                     cross_set.append([inter_set, {}])
                 else:
                     hyp_set.append([inter_set, {}])
-
-            inter_sets_merged = cross_merge(pre_set, cross_set, hyp_set)
-        elif not get_pairwise_effects:
-            inter_sets_merged = merge_overlapping_sets(thresholded_inter_sets)
+            if do_cross_merge:
+                inter_sets_merged = cross_merge(pre_set, cross_set, hyp_set)
+            else:  # get_cross_effects: just get cross_set
+                inter_sets_merged = [pair for pair, _ in cross_set]
         else:
-            inter_sets_merged = thresholded_inter_sets
+            inter_sets_merged = merge_overlapping_sets(thresholded_inter_sets)
         inter_effects = self.archattribute(inter_sets_merged)
 
         if separate_effects:
             return inter_effects, self.main_effects
 
-        if do_cross_merge or get_pairwise_effects:
+        if do_cross_merge:
             merged_indices = set(inter_effects.keys())
             for idx in self.main_effects.keys():
                 if idx not in chain.from_iterable(inter_effects.keys()):
                     merged_indices.add((idx,))
+        elif get_cross_effects:
+            merged_indices = set(inter_effects.keys())
         else:
             merged_indices = merge_overlapping_sets(
                 set(self.main_effects.keys()) | set(inter_effects.keys()))
@@ -664,14 +666,15 @@ class CrossArchipelago(Archipelago):
                 use_embedding=False,
                 cross_sent_context=True,
                 do_cross_merge=False,
-                get_pairwise_effects=False):
+                get_cross_effects=False):
         """
-        get_pairwise_effects is different from all other file: just don't merge
+        get_cross_effects is different from all other file: just don't merge
         at the end.
         """
-        if get_pairwise_effects:
+        if get_cross_effects:
             do_cross_merge = False
         if do_cross_merge:
+            individual_topk = top_k
             top_k = None
         if (self.inter_sets is None) or (self.main_effects is None):
             detection_dict = self.archdetect(get_pairwise_effects=False,
@@ -703,7 +706,7 @@ class CrossArchipelago(Archipelago):
         else:
             raise ValueError("top_k must be int or None")
 
-        if not get_pairwise_effects and do_cross_merge:
+        if get_cross_effects or do_cross_merge:
             pre_set, cross_set, hyp_set = [], [], []
             for inter_set in thresholded_inter_sets:
                 if inter_set[0][0] < self.sep_pos and inter_set[0][1] < self.sep_pos:
@@ -712,23 +715,27 @@ class CrossArchipelago(Archipelago):
                     cross_set.append(inter_set)
                 else:
                     hyp_set.append(inter_set)
-
-            inter_sets_merged = cross_merge(pre_set, cross_set, hyp_set)
-        elif not get_pairwise_effects:
+            if do_cross_merge:
+                inter_sets_merged = cross_merge(pre_set[:individual_topk],
+                                                cross_set[:individual_topk],
+                                                hyp_set[:individual_topk])
+            else:  # get_cross_effects: just get cross_set
+                inter_sets_merged = [pair for pair, _ in cross_set]
+        else:
             inter_sets_merged = merge_overlapping_sets(
                 [pair for pair, _ in thresholded_inter_sets])
-        else:
-            inter_sets_merged = [pair for pair, _ in thresholded_inter_sets]
         inter_effects = self.archattribute(inter_sets_merged)
 
         if separate_effects:
             return inter_effects, self.main_effects
 
-        if do_cross_merge or get_pairwise_effects:
+        if do_cross_merge:
             merged_indices = set(inter_effects.keys())
             for idx in self.main_effects.keys():
                 if idx not in chain.from_iterable(inter_effects.keys()):
                     merged_indices.add((idx,))
+        elif get_cross_effects:
+            merged_indices = set(inter_effects.keys())
         else:
             merged_indices = merge_overlapping_sets(
                 set(self.main_effects.keys()) | set(inter_effects.keys()))
@@ -746,6 +753,45 @@ class CrossArchipelago(Archipelago):
         return merged_explanation
 
 
+# def cross_merge(pre_set, cross_set, hyp_set, sum_strength=False):
+#     """
+#     *_set:  [(idx1, idx2), {pre: score, hyp: score, all: score}]
+#     sum_strength: get sum of merged interaction strengths. if True,
+#         {(interaction): strength}
+#         if false, [(interaction)]
+#     """
+#     if sum_strength:
+#         merged = {}
+#     else:
+#         merged = []
+#     used = {'pre': set(), 'hyp': set()}
+#     for cross in cross_set:
+#         feature_group = list(cross[0])
+#         if sum_strength:
+#             feature_strengths = cross[1]['all']
+#         for i, pre in enumerate(pre_set):
+#             if cross[0][0] in pre[0] and i not in used['pre']:
+#                 feature_group = sorted(set(feature_group + list(pre[0])))
+#                 if sum_strength:
+#                     feature_strengths += pre[1]['all']
+#                 used['pre'].add(i)
+#                 break
+
+#         for j, hyp in enumerate(hyp_set):
+#             if cross[0][1] in hyp[0] and j not in used['hyp']:
+#                 feature_group = sorted(set(feature_group + list(hyp[0])))
+#                 if sum_strength:
+#                     feature_strengths += hyp[1]['all']
+#                 used['hyp'].add(j)
+#                 break
+#         if sum_strength:
+#             merged[tuple(feature_group)] = feature_strengths
+#         else:
+#             merged.append(tuple(feature_group))
+
+#     return merged
+
+
 def cross_merge(pre_set, cross_set, hyp_set, sum_strength=False):
     """
     *_set:  [(idx1, idx2), {pre: score, hyp: score, all: score}]
@@ -753,33 +799,41 @@ def cross_merge(pre_set, cross_set, hyp_set, sum_strength=False):
         {(interaction): strength}
         if false, [(interaction)]
     """
-    if sum_strength:
-        merged = {}
-    else:
-        merged = []
-    used = {'pre': set(), 'hyp': set()}
-    for cross in cross_set:
-        feature_group = list(cross[0])
-        if sum_strength:
-            feature_strengths = cross[1]['all']
-        for i, pre in enumerate(pre_set):
-            if cross[0][0] in pre[0] and i not in used['pre']:
-                feature_group = sorted(set(feature_group + list(pre[0])))
-                if sum_strength:
-                    feature_strengths += pre[1]['all']
-                used['pre'].add(i)
-                break
+    pre_set, cross_set, hyp_set = pre_set.copy(), cross_set.copy(), hyp_set.copy()
+    pre_set = list(list(zip(*pre_set))[0])
+    cross_set = list(list(zip(*cross_set))[0])
+    hyp_set = list(list(zip(*hyp_set))[0])
+    merged = []
+    while cross_set:
+        inter_set = cross_set.pop(0)
+        if len(cross_set) == 0:
+            merged.append(tuple(inter_set))
+            return merged
+        other_inter = cross_set.pop(0)
 
-        for j, hyp in enumerate(hyp_set):
-            if cross[0][1] in hyp[0] and j not in used['hyp']:
-                feature_group = sorted(set(feature_group + list(hyp[0])))
-                if sum_strength:
-                    feature_strengths += hyp[1]['all']
-                used['hyp'].add(j)
-                break
-        if sum_strength:
-            merged[tuple(feature_group)] = feature_strengths
+        evidence_candidates = list(product(inter_set, other_inter))
+        num_evidences = len(evidence_candidates)
+        evidence_found = 0
+
+        for evidence in evidence_candidates:
+            evidence = tuple(sorted(evidence))
+            if (evidence[0] == evidence[1] or set(inter_set).issubset(set(evidence)) or
+                    evidence == other_inter):
+                ## (i, j) + (j, k) -> should find (i, k) only
+                num_evidences -= 1
+            elif evidence in pre_set:
+                evidence_found += 1
+                pre_set.remove(evidence)
+            elif evidence in hyp_set:
+                evidence_found += 1
+                hyp_set.remove(evidence)
+            elif evidence in cross_set:
+                evidence_found += 1
+                cross_set.remove(evidence)
+        if evidence_found >= num_evidences / 2:
+            inter_set = tuple(sorted(set(inter_set + other_inter)))
+            cross_set.insert(0, inter_set)
         else:
-            merged.append(tuple(feature_group))
-
+            merged.append(tuple(inter_set))
+            cross_set.insert(0, tuple(other_inter))
     return merged
