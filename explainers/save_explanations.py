@@ -11,6 +11,7 @@ import torch
 from explainers.archipelago.get_explainer import ArchExplainerInterface
 from explainers.integrated_hessians.IH_explainer import IHBertExplainer
 from explainers.naive_explain.naive_explainer import NaiveExplainer
+from explainers.mask_explain.mask_explainer import MaskExplainer
 from tqdm import tqdm
 from utils.data_utils import load_df
 
@@ -54,7 +55,7 @@ def main():
                         choices=[
                             'arch', 'cross_arch', 'arch_pair', 'cross_arch_pair',
                             'naive_occlusion', 'naive_interaction_occlusion', 'IH'
-                        ])
+                        ] + [f'mask_explain-{i}' for i in range(5)])
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--topk', type=int, default=5)
     parser.add_argument('--format',
@@ -94,6 +95,19 @@ def main():
                               use_expectation=False,
                               do_cross_merge=args.do_cross_merge,
                               get_cross_effects=True)
+    elif 'mask_explain' in args.explainer:
+        interaction_order = int(args.explainer.split('-')[1])
+        # NOTE: mask explainer works only with attention perturbations
+        args.baseline_token = f'attention+{args.baseline_token}'
+        explainer = MaskExplainer(args.model_name,
+                                  device=device,
+                                  baseline_token=args.baseline_token)
+        # TODO: make it not hard coded
+        explain_kwargs = dict(batch_size=args.batch_size,
+                              interaction_order=interaction_order,
+                              mask_p=0.5,
+                              mask_n=10000,
+                              inverse_mask=False)
     else:
         raise NotImplementedError
 
