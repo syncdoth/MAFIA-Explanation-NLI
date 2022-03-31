@@ -24,10 +24,10 @@ def get_numbered_list(token_list):
     new_token_list = []
     for x in token_list:
         if x in token_set:
-            new_token_list.append(x + str(token_set[x]))
+            new_token_list.append(x.lower() + str(token_set[x]))
             token_set[x] += 1
         else:
-            new_token_list.append(x)
+            new_token_list.append(x.lower())
             token_set[x] = 1
     return new_token_list
 
@@ -108,7 +108,7 @@ def interaction_precision(gt_rationales, pred_rationales, skip_intra_rationale=F
             continue
         similarities = []
         for g in gt_rationales:
-            similarities.append(jaccard_sim(p[0], g[0]) * jaccard_sim(p[1], g[1]))
+            similarities.append(compute_f1(p[0], g[0])[-1] * compute_f1(p[1], g[1])[-1])
         precision.append(max(similarities))
 
     if len(precision) == 0:
@@ -119,23 +119,18 @@ def interaction_precision(gt_rationales, pred_rationales, skip_intra_rationale=F
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--model_name',
-                        type=str,
-                        default='bert-base',
-                        choices=['bert-base', 'roberta-large'])
+    parser.add_argument('--model_name', type=str, default='bert-base')
     parser.add_argument('--data_root', type=str, default='data/e-SNLI')
     parser.add_argument('--mode', type=str, default='test', choices=['dev', 'test'])
     parser.add_argument('--how', type=str, default='union', choices=['vote', 'union'])
-    parser.add_argument('--explainer',
-                        type=str,
-                        default='arch',
-                        choices=['arch', 'cross_arch'])
+    parser.add_argument('--explainer', type=str, default='arch')
     parser.add_argument('--topk', type=int, default=5)
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--metric',
                         type=str,
                         default='token_f1',
                         choices=['token_f1', 'interaction_precision'])
+    parser.add_argument('--do_cross_merge', action='store_true')
     parser.add_argument('--skip_neutral', action='store_true')
     parser.add_argument('--only_correct', action='store_true')
     parser.add_argument('--test_annotator', type=int, default=-1)
@@ -188,7 +183,10 @@ def main():
         #      ]
         # }
         explanation_fname += '_interaction'
+    if args.do_cross_merge:
+        explanation_fname += '_X'
 
+    print('loading from:', explanation_fname + '.json')
     with open(explanation_fname + '.json', 'r') as f:
         explanations = json.load(f)
 
@@ -215,7 +213,7 @@ def run(data, explanations, args):
             scores.append(
                 interaction_precision(gt_rationale,
                                       exp['pred_rationales'],
-                                      skip_intra_rationale=True))
+                                      skip_intra_rationale=False))
         else:
             raise NotImplementedError
 
@@ -255,11 +253,14 @@ def run(data, explanations, args):
         })
     elif args.metric == 'interaction_precision':
         results = pd.DataFrame({'interaction_precision': [scores.mean()]})
+        print(results)
 
     save_name = f'eval_results/{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}_BT={args.baseline_token}'
     if args.test_annotator > 0:
-        save_name = f'annotator{args.test_annotator}_{args.metric}_{args.mode}_{args.how}'
+        save_name = f'eval_results/annotator{args.test_annotator}_{args.metric}_{args.mode}_{args.how}'
 
+    if args.do_cross_merge:
+        save_name += '_X'
     if args.skip_neutral:
         save_name += '_skip-neutral'
     if args.only_correct:

@@ -92,7 +92,8 @@ def main():
         explain_kwargs = dict(batch_size=16,
                               num_samples=128,
                               use_expectation=False,
-                              do_cross_merge=args.do_cross_merge)
+                              do_cross_merge=args.do_cross_merge,
+                              get_cross_effects=True)
     else:
         raise NotImplementedError
 
