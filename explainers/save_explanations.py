@@ -10,7 +10,7 @@ import json
 import torch
 from explainers.archipelago.get_explainer import ArchExplainerInterface
 from explainers.integrated_hessians.IH_explainer import IHBertExplainer
-from explainers.naive_explainer import NaiveExplainer
+from explainers.naive_explain.naive_explainer import NaiveExplainer
 from tqdm import tqdm
 from utils.data_utils import load_df
 
