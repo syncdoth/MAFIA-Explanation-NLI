@@ -1,6 +1,7 @@
 """
 Explain with random masking.
 """
+import string
 import sys
 
 sys.path.insert(0, '/data/schoiaj/repos/nli_explain')
@@ -100,10 +101,13 @@ class MaskExplainer(ExplainerInterface):
                 hypothesis,
                 batch_size=32,
                 target_class=None,
-                interaction_order=1,
+                interaction_order=(1,),
                 mask_p=0.5,
                 mask_n=1000,
                 inverse_mask=False):
+        tokens = self.tokenizer.tokenize(premise,
+                                         pair=hypothesis,
+                                         add_special_tokens=True)
         scores, mask, pred_class, pred_score = self.get_scores(premise,
                                                                hypothesis,
                                                                batch_size=batch_size,
@@ -116,26 +120,32 @@ class MaskExplainer(ExplainerInterface):
             skip_indices = set(torch.where(mask.sum(0) == 0)[0].tolist())
         else:
             skip_indices = set(torch.where(mask.sum(0) == mask.shape[0])[0].tolist())
-        explanations = {}
-        if interaction_order == 1:
-            freq = mask.float().mean(0, keepdims=True)  # [T]
-            saliencies = (scores.unsqueeze(0) @ mask.float()) / freq  # [1, T]
-            saliencies = saliencies.squeeze()
-            for i in range(mask.shape[1]):
-                if i in skip_indices:
-                    continue
-                explanations[(i,)] = saliencies[i].item()
-        else:
-            valid_indices = set(range(mask.shape[1])) - skip_indices
-            feature_groups = combinations(valid_indices, interaction_order)
-            for group in feature_groups:
-                # 1 iff all indices are present
-                interaction_mask = torch.prod(mask[:, group].float(), dim=1)
-                freq = interaction_mask.mean()
-                explanations[group] = (interaction_mask @ scores / freq).item()
 
-        tokens = self.tokenizer.tokenize(premise,
-                                         pair=hypothesis,
-                                         add_special_tokens=True)
+        skip_indices.update(
+            [i for i, tok in enumerate(tokens) if tok in string.punctuation])
+        valid_indices = set(range(mask.shape[1])) - skip_indices
+
+        explanations = {}
+        for order in interaction_order:
+            if order == 1:
+                freq = mask.float().mean(0, keepdims=True)  # [T]
+                saliencies = (scores.unsqueeze(0) @ mask.float()) / freq  # [1, T]
+                saliencies = saliencies.squeeze()
+                for i in valid_indices:
+                    explanations[(i,)] = saliencies[i].item()
+            else:
+                feature_groups = combinations(valid_indices, order)
+                sep_idx = tokens.index(self.tokenizer.sep_token)
+                for group in feature_groups:
+                    if not self.is_cross_group(group, sep_idx):
+                        continue
+                    # 1 iff all indices are present
+                    interaction_mask = torch.prod(mask[:, group].float(), dim=1)
+                    freq = interaction_mask.mean()
+                    explanations[group] = (interaction_mask @ scores / freq).item()
 
         return explanations, tokens, pred_class
+
+    def is_cross_group(self, group, sep_idx):
+        group_tensor = torch.tensor(group)
+        return not ((group_tensor < sep_idx).all() or (group_tensor > sep_idx).all())

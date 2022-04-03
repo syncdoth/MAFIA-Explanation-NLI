@@ -54,8 +54,9 @@ def main():
                         default='arch',
                         choices=[
                             'arch', 'cross_arch', 'arch_pair', 'cross_arch_pair',
-                            'naive_occlusion', 'naive_interaction_occlusion', 'IH'
-                        ] + [f'mask_explain-{i}' for i in range(5)])
+                            'naive_occlusion', 'naive_interaction_occlusion', 'IH',
+                            'mask_explain'
+                        ])
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--topk', type=int, default=5)
     parser.add_argument('--format',
@@ -63,6 +64,11 @@ def main():
                         default='token',
                         choices=['token', 'interaction'])
     parser.add_argument('--do_cross_merge', action='store_true')
+    # mask explainer args
+    parser.add_argument('--interaction_order', nargs='+')
+    parser.add_argument('--mask_p', type=float, default=0.5)
+    parser.add_argument('--mask_n', type=int, default=10000)
+    parser.add_argument('--inverse_mask', action='store_true')
     args = parser.parse_args()
 
     data = load_df(args.data_root, mode=args.mode)
@@ -96,18 +102,19 @@ def main():
                               do_cross_merge=args.do_cross_merge,
                               get_cross_effects=True)
     elif 'mask_explain' in args.explainer:
-        interaction_order = int(args.explainer.split('-')[1])
+        interaction_order = tuple(args.interaction_order)
         # NOTE: mask explainer works only with attention perturbations
-        args.baseline_token = f'attention+{args.baseline_token}'
+        if 'attention' not in args.baseline_token:
+            args.baseline_token = f'attention+{args.baseline_token}'
         explainer = MaskExplainer(args.model_name,
                                   device=device,
                                   baseline_token=args.baseline_token)
         # TODO: make it not hard coded
         explain_kwargs = dict(batch_size=args.batch_size,
                               interaction_order=interaction_order,
-                              mask_p=0.5,
-                              mask_n=10000,
-                              inverse_mask=False)
+                              mask_p=args.mask_p,
+                              mask_n=args.mask_n,
+                              inverse_mask=args.inverse_mask)
     else:
         raise NotImplementedError
 
@@ -170,7 +177,9 @@ def run(data, explainer, out_file, args, **explain_kwargs):
                         hyp_group.append(token)
                     elif idx > sep_position + 1 and 'roberta' in args.model_name:
                         hyp_group.append(token)
-                rationales.append([tuple(pre_group), tuple(hyp_group)])
+                if (pre_group, hyp_group) not in rationales:
+                    # NOTE: an ugly fix to duplicate problem due to subword merging
+                    rationales.append((pre_group, hyp_group))
             current_explanation = {
                 'pred_label': inv_label_map[pred],
                 'pred_rationales': rationales,
