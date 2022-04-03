@@ -1,4 +1,5 @@
 from itertools import chain
+import os
 import string
 import sys
 
@@ -59,6 +60,7 @@ def main():
                         ])
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--topk', type=int, default=5)
+    parser.add_argument('--arch_int_topk', type=int, default=5)
     parser.add_argument('--format',
                         type=str,
                         default='token',
@@ -85,8 +87,9 @@ def main():
                                            baseline_token=args.baseline_token,
                                            explainer_class=args.explainer)
         explain_kwargs = dict(batch_size=args.batch_size,
-                              topk=args.topk,
+                              topk=args.arch_int_topk,
                               do_cross_merge=args.do_cross_merge)
+        args.explainer = f'{args.explainer}-{args.arch_int_topk}'
     elif 'naive' in args.explainer:
         explainer = NaiveExplainer(args.model_name,
                                    device=device,
@@ -104,7 +107,7 @@ def main():
                               use_expectation=False,
                               do_cross_merge=args.do_cross_merge,
                               get_cross_effects=True)
-    elif 'mask_explain' in args.explainer:
+    elif args.explainer == 'mask_explain':
         interaction_order = tuple(map(int, args.interaction_order.split(',')))
         # NOTE: mask explainer works only with attention perturbations
         if 'attention' not in args.baseline_token:
@@ -118,6 +121,7 @@ def main():
                               mask_p=args.mask_p,
                               mask_n=args.mask_n,
                               inverse_mask=args.inverse_mask)
+        args.explainer = f'{args.explainer}-{args.interaction_order}-p{args.mask_p}-n{args.mask_n}-inv{int(args.inverse_mask)}'
     else:
         raise NotImplementedError
 
@@ -125,11 +129,12 @@ def main():
 
     if args.do_cross_merge:
         explanation_fname += '_X'
-    write_file = open(f'{explanation_fname}.json', 'a')
-    write_file.write('[\n')
-    run(sent_data, explainer, write_file, args, **explain_kwargs)
-    write_file.write(']')
-    write_file.close()
+    if os.path.isfile(f'{explanation_fname}.json'):
+        os.remove(f'{explanation_fname}.json')
+    with open(f'{explanation_fname}.json', 'a') as write_file:
+        write_file.write('[\n')
+        run(sent_data, explainer, write_file, args, **explain_kwargs)
+        write_file.write(']')
 
 
 def run(data, explainer, out_file, args, **explain_kwargs):
