@@ -65,7 +65,10 @@ def main():
                         choices=['token', 'interaction'])
     parser.add_argument('--do_cross_merge', action='store_true')
     # mask explainer args
-    parser.add_argument('--interaction_order', nargs='+')
+    parser.add_argument('--interaction_order',
+                        type=str,
+                        help='comma separated values',
+                        default='1')
     parser.add_argument('--mask_p', type=float, default=0.5)
     parser.add_argument('--mask_n', type=int, default=10000)
     parser.add_argument('--inverse_mask', action='store_true')
@@ -102,7 +105,7 @@ def main():
                               do_cross_merge=args.do_cross_merge,
                               get_cross_effects=True)
     elif 'mask_explain' in args.explainer:
-        interaction_order = tuple(args.interaction_order)
+        interaction_order = tuple(map(int, args.interaction_order.split(',')))
         # NOTE: mask explainer works only with attention perturbations
         if 'attention' not in args.baseline_token:
             args.baseline_token = f'attention+{args.baseline_token}'
