@@ -1,16 +1,17 @@
 import os
-import string
 from collections import Counter
+import re
 from itertools import chain, product
 
 import pandas as pd
 from nltk.corpus import stopwords
 
+remove_punctuation = re.compile(r'[\.\*,;!:\(\)]')
+split_punctuation = re.compile(r'[ \-\'&/`]')
+
 
 def perturb_text(text, baseline_token='[MASK]'):
-    text_list = [
-        w.translate(str.maketrans('', '', string.punctuation)) for w in text.split(' ')
-    ]
+    text_list = [remove_punctuation.sub('', w) for w in split_punctuation.split(text)]
     text_perturbed = []
     for i, delete in enumerate(text.split(' ')):
         if delete.lower() in set(stopwords.words('english')):
@@ -31,9 +32,7 @@ def get_contiguous_phrases(text, tokens):
 
         returns: [[I], [eating, food]]
     """
-    full_tokens = [
-        w.translate(str.maketrans('', '', string.punctuation)) for w in text.split(' ')
-    ]
+    full_tokens = [remove_punctuation.sub('', w) for w in split_punctuation.split(text)]
     phrases = []
     current_phrase = []
     current_phrase_idx = 0
@@ -97,9 +96,12 @@ def get_token_rationales(df, how='vote'):
             for k in (1, 2, 3):
                 current_marked = df.iloc[i][f'Sentence{j}_marked_{k}']
                 current_marked = current_marked.strip().split(' ')
-                match = [(i, w.translate(str.maketrans('', '', string.punctuation)))
-                         for i, w in enumerate(current_marked)
-                         if w.startswith('*') and w.endswith('*')]
+                match = []
+                for idx, w in enumerate(current_marked):
+                    if w.startswith('*') and w.endswith('*'):
+                        cleaned = remove_punctuation.sub('', w)
+                        match.extend([(idx, x) for x in split_punctuation.split(cleaned)])
+
                 rationales.append(match)
             counts = Counter(chain.from_iterable(rationales))
             if how == 'vote':
@@ -126,11 +128,11 @@ def get_annotator_rationales(df):
             for j in (1, 2):
                 current_marked = df.iloc[i][f'Sentence{j}_marked_{k}']
                 current_marked = current_marked.strip().split(' ')
-                match = [
-                    w.translate(str.maketrans('', '', string.punctuation))
-                    for w in current_marked
-                    if w.startswith('*') and w.endswith('*')
-                ]
+                match = []
+                for i, w in enumerate(current_marked):
+                    if w.startswith('*') and w.endswith('*'):
+                        cleaned = remove_punctuation.sub('', w)
+                        match.extend(split_punctuation.split(cleaned))
                 rationale.append(match)
             annotators_token_rationale[k - 1].append(rationale)
 
