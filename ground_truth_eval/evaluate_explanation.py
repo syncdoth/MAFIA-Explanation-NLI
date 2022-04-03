@@ -91,10 +91,10 @@ def jaccard_sim(first, second):
     return len(numbered_first & numbered_second) / len(numbered_first | numbered_second)
 
 
-def interaction_precision(gt_rationales,
-                          pred_rationales,
-                          skip_intra_rationale=False,
-                          max_only=False):
+def interaction_f1(gt_rationales,
+                   pred_rationales,
+                   skip_intra_rationale=False,
+                   max_only=False):
     """
     gt_rationales: list of list of 2 tuple of words:
         [
@@ -131,11 +131,10 @@ def main():
     parser.add_argument('--explainer', type=str, default='arch')
     parser.add_argument('--topk', type=int, default=5)
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
-    parser.add_argument(
-        '--metric',
-        type=str,
-        default='token_f1',
-        choices=['token_f1', 'interaction_precision', 'interaction_precision-max'])
+    parser.add_argument('--metric',
+                        type=str,
+                        default='token_f1',
+                        choices=['token_f1', 'interaction_f1', 'interaction_f1-max'])
     parser.add_argument('--do_cross_merge', action='store_true')
     parser.add_argument('--skip_neutral', action='store_true')
     parser.add_argument('--only_correct', action='store_true')
@@ -178,7 +177,7 @@ def main():
         # }
         explanation_fname += '_token'
 
-    elif 'interaction_precision' in args.metric:
+    elif 'interaction_f1' in args.metric:
         # load from explanation that have interaction rationales:
         # format:
         # {
@@ -213,14 +212,14 @@ def run(data, explanations, args):
             scores.append(
                 compute_score(gt_rationale[0], gt_rationale[1], exp['premise_rationales'],
                               exp['hypothesis_rationales']))
-        elif 'interaction_precision' in args.metric:
+        elif 'interaction_f1' in args.metric:
             if len(gt_rationale) == 0:  # this might happen with vote
                 continue
             scores.append(
-                interaction_precision(gt_rationale,
-                                      exp['pred_rationales'],
-                                      skip_intra_rationale=False,
-                                      max_only='max' in args.metric))
+                interaction_f1(gt_rationale,
+                               exp['pred_rationales'],
+                               skip_intra_rationale=False,
+                               max_only='max' in args.metric))
         else:
             raise NotImplementedError
 
@@ -258,8 +257,8 @@ def run(data, explanations, args):
                 'hypothesis': hypothesis_f1,
             },
         })
-    elif 'interaction_precision' in args.metric:
-        results = pd.DataFrame({'interaction_precision': [scores.mean()]})
+    elif 'interaction_f1' in args.metric:
+        results = pd.DataFrame({'interaction_f1': [scores.mean()]})
         print(results)
 
     save_name = f'eval_results/{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}_BT={args.baseline_token}'
