@@ -94,7 +94,8 @@ def jaccard_sim(first, second):
 def interaction_f1(gt_rationales,
                    pred_rationales,
                    skip_intra_rationale=False,
-                   max_only=False):
+                   max_only=False,
+                   topk=None):
     """
     gt_rationales: list of list of 2 tuple of words:
         [
@@ -105,7 +106,7 @@ def interaction_f1(gt_rationales,
     pred_rationales: same format as gt_rationales.
     """
     precision = []
-    for p in pred_rationales:
+    for p in pred_rationales[:topk]:
         if skip_intra_rationale and (len(p[0]) == 0 or len(p[1]) == 0):
             # if the explanation is not cross-sentence, continue
             continue
@@ -154,7 +155,7 @@ def main():
         gt_rationale = list(zip(*gt_rationale))
     data = (gt_rationale, label)
 
-    explanation_fname = (f'explanations/{args.model_name}_{args.explainer}_{args.topk}'
+    explanation_fname = (f'explanations/{args.model_name}_{args.explainer}'
                          f'_{args.mode}_BT={args.baseline_token}')
     if args.test_annotator > 0:
         args.only_correct = False
@@ -198,9 +199,11 @@ def main():
     run(data, explanations, args)
 
 
-def run(data, explanations, args):
+def run(data, explanations, args, verbose=False):
     scores = []
-    pbar = tqdm(zip(*data, explanations), total=len(explanations))
+    pbar = zip(*data, explanations)
+    if verbose:
+        pbar = tqdm(pbar, total=len(explanations))
     for gt_rationale, label, exp in pbar:
         if args.skip_neutral:
             if label == 'neutral':
@@ -215,11 +218,13 @@ def run(data, explanations, args):
         elif 'interaction_f1' in args.metric:
             if len(gt_rationale) == 0:  # this might happen with vote
                 continue
-            scores.append(
+            scores.append([
                 interaction_f1(gt_rationale,
                                exp['pred_rationales'],
                                skip_intra_rationale=False,
-                               max_only='max' in args.metric))
+                               max_only='max' in args.metric,
+                               topk=k) for k in range(1, args.topk + 1)
+            ])
         else:
             raise NotImplementedError
 
@@ -258,10 +263,13 @@ def run(data, explanations, args):
             },
         })
     elif 'interaction_f1' in args.metric:
-        results = pd.DataFrame({'interaction_f1': [scores.mean()]})
-        print(results)
+        results = pd.DataFrame(scores.mean(0),
+                               columns=[f'interaction_f1'],
+                               index=range(1, args.topk + 1))
 
     save_name = f'eval_results/{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}_BT={args.baseline_token}'
+    print(save_name)
+    print(results)
     if args.test_annotator > 0:
         save_name = f'eval_results/annotator{args.test_annotator}_{args.metric}_{args.mode}_{args.how}'
 
