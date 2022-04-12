@@ -2,8 +2,9 @@
 contains the base class of explainer interfaces.
 """
 import sys
+import os
 
-sys.path.insert(0, '/data/schoiaj/repos/nli_explain')
+sys.path.insert(0, os.path.join(os.path.dirname(__name__), '..'))
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from utils.utils import load_pretrained_config
