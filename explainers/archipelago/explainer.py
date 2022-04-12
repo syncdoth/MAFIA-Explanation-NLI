@@ -209,6 +209,7 @@ class Archipelago(Explainer):
         if get_cross_effects:
             do_cross_merge = False
         if do_cross_merge:
+            individual_topk = top_k
             top_k = None
         if (self.inter_sets is None) or (self.main_effects is None):
             detection_dict = self.archdetect(get_pairwise_effects=False,
@@ -234,7 +235,9 @@ class Archipelago(Explainer):
                 else:
                     hyp_set.append([inter_set, {}])
             if do_cross_merge:
-                inter_sets_merged = cross_merge(pre_set, cross_set, hyp_set)
+                inter_sets_merged = cross_merge(pre_set[:individual_topk],
+                                                cross_set[:individual_topk],
+                                                hyp_set[:individual_topk])
             else:  # get_cross_effects: just get cross_set
                 inter_sets_merged = [pair for pair, _ in cross_set]
         else:
