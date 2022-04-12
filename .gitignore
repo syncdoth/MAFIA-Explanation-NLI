@@ -4,3 +4,6 @@ data
 models/
 eval_results/
 explanations/
+explainers/integrated_hessians/examples/
+explainers/integrated_hessians/benchmarking/
+explainers/integrated_hessians/unit_tests/
