@@ -263,9 +263,9 @@ def run(data, explanations, args, verbose=False):
             },
         })
     elif 'interaction_f1' in args.metric:
-        results = pd.DataFrame(scores.mean(0),
-                               columns=[f'interaction_f1'],
-                               index=range(1, args.topk + 1))
+        results = pd.DataFrame(scores.mean(0), columns=[f'interaction_f1'])
+        all_results = pd.DataFrame(
+            scores, columns=[f'interaction_f1_top{k}' for k in range(1, args.topk + 1)])
 
     save_name = f'eval_results/{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}_BT={args.baseline_token}'
     print(save_name)
@@ -280,6 +280,8 @@ def run(data, explanations, args, verbose=False):
     if args.only_correct:
         save_name += '_only-correct'
     results.to_csv(f'{save_name}.csv', index=False)
+    if 'interaction_f1' in args.metric:
+        all_results.to_csv(f'{save_name}_all.csv', index=False)
 
 
 if __name__ == "__main__":
