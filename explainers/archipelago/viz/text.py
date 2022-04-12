@@ -1,10 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import viz.colors as colors
+import explainers.archipelago.viz.colors as colors
 import matplotlib.patches as patches
-from viz.rec import _set_axis_config
-
 
 stixfont = {"fontname": "STIXGeneral"}
 

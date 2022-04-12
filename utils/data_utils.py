@@ -10,8 +10,12 @@ remove_punctuation = re.compile(r'[\.\*,;!:\(\)]')
 split_punctuation = re.compile(r'[ \-\'&/`]')
 
 
+def get_clean_token_list(text):
+    return [remove_punctuation.sub('', w) for w in split_punctuation.split(text)]
+
+
 def perturb_text(text, baseline_token='[MASK]'):
-    text_list = [remove_punctuation.sub('', w) for w in split_punctuation.split(text)]
+    text_list = get_clean_token_list(text)
     text_perturbed = []
     for i, delete in enumerate(text.split(' ')):
         if delete.lower() in set(stopwords.words('english')):
@@ -32,7 +36,7 @@ def get_contiguous_phrases(text, tokens):
 
         returns: [[I], [eating, food]]
     """
-    full_tokens = [remove_punctuation.sub('', w) for w in split_punctuation.split(text)]
+    full_tokens = get_clean_token_list(text)
     phrases = []
     current_phrase = []
     current_phrase_idx = 0

@@ -70,7 +70,7 @@ class ArchExplainerInterface(ExplainerInterface):
                                     data_xformer=xf,
                                     output_indices=pred,
                                     batch_size=batch_size)
-        # TODO: here, topk means sth different
+        # NOTE: here, topk means sth different
         explanation, _ = apgo.explain(top_k=topk,
                                       use_embedding=True,
                                       do_cross_merge=do_cross_merge,
