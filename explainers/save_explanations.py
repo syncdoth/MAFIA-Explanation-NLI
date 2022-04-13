@@ -62,10 +62,6 @@ def main():
                         ])
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--arch_int_topk', type=int, default=5)
-    parser.add_argument('--format',
-                        type=str,
-                        default='token',
-                        choices=['token', 'interaction'])
     parser.add_argument('--do_cross_merge', action='store_true')
     # mask explainer args
     parser.add_argument('--interaction_order',
