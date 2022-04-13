@@ -17,19 +17,21 @@ from tqdm import tqdm
 from utils.data_utils import load_df
 
 
+def get_base_idx(tokens, idx):
+    if not tokens[idx].startswith('##'):
+        return idx
+
+    while tokens[idx].startswith('##'):
+        # no need to check against idx=-1, since subword are always matched.
+        idx -= 1
+    return idx
+
+
 def process_token(tokens, idx):
     """
     merge subwords.
     """
-    # TODO: either do this or use tokenizer: not both.
-    # TODO: duplicate problem
     tok = tokens[idx]
-    # backwards
-    if tok.startswith('##'):
-        while tok.startswith('##'):
-            tok = tokens[idx - 1] + tok[2:]
-            idx -= 1
-        return tok
     if idx + 1 == len(tokens):
         return tok
     # forwards
@@ -153,6 +155,7 @@ def run(data, explainer, out_file, args, **explain_kwargs):
 
         if args.format == 'token':
             token_idx = set(chain.from_iterable(topk_exp))
+            token_idx = sorted(set([get_base_idx(tokens, idx) for idx in token_idx]))
             pre_rat = []
             hyp_rat = []
             for idx in token_idx:
@@ -174,7 +177,12 @@ def run(data, explainer, out_file, args, **explain_kwargs):
             }
         elif args.format == 'interaction':
             rationales = []
-            for interaction in topk_exp:
+            proc_interaction = set([
+                sorted(set([get_base_idx(tokens, idx)
+                            for idx in interaction]))
+                for interaction in topk_exp
+            ])
+            for interaction in proc_interaction:
                 pre_group = []
                 hyp_group = []
                 for idx in interaction:
@@ -185,8 +193,6 @@ def run(data, explainer, out_file, args, **explain_kwargs):
                         hyp_group.append(token)
                     elif idx > sep_position + 1 and 'roberta' in args.model_name:
                         hyp_group.append(token)
-                if (pre_group, hyp_group) not in rationales:
-                    # NOTE: an ugly fix to duplicate problem due to subword merging
                     rationales.append((pre_group, hyp_group))
             current_explanation = {
                 'pred_label': inv_label_map[pred],
