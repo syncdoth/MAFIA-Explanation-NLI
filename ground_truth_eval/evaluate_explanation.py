@@ -75,7 +75,8 @@ def compute_f1(pred_rationale, gt_rationale):
     return prec, rec, f1
 
 
-def compute_score(gt_rationale1, gt_rationale2, pred_rationale1, pred_rationale2):
+def compute_token_f1_score(gt_rationale1, gt_rationale2, pred_rationale1,
+                           pred_rationale2):
     p1, r1, f1_1 = compute_f1(pred_rationale1, gt_rationale1)
     p2, r2, f1_2 = compute_f1(pred_rationale2, gt_rationale2)
 
@@ -213,8 +214,9 @@ def run(data, explanations, args, verbose=False):
                 continue
         if args.metric == 'token_f1':
             scores.append(
-                compute_score(gt_rationale[0], gt_rationale[1], exp['premise_rationales'],
-                              exp['hypothesis_rationales']))
+                compute_token_f1_score(gt_rationale[0], gt_rationale[1],
+                                       exp['premise_rationales'],
+                                       exp['hypothesis_rationales']))
         elif 'interaction_f1' in args.metric:
             if len(gt_rationale) == 0:  # this might happen with vote
                 continue
