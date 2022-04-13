@@ -14,7 +14,8 @@ class ModelInterface:
         self.explanations = None
         self.tokens = None
 
-    def infer(self, sent1, sent2, mask_p, mask_n):
+    def infer(self, sent1, sent2, mask_p, mask_n, topk):
+        del topk  # unused
         explanations, tokens, pred_class = self.explainer.explain(sent1,
                                                                   sent2,
                                                                   batch_size=32,
@@ -32,7 +33,9 @@ class ModelInterface:
         return pred_label
 
     def interpret(self, *args):
-        topk_tok = sorted(self.explanations.items(), key=lambda x: x[1], reverse=True)[:4]
+        topk = args[-1]
+        topk_tok = sorted(self.explanations.items(), key=lambda x: x[1],
+                          reverse=True)[:topk]
         topk_tok = {i[0]: s for i, s in topk_tok if s > 0}
         token_exp1 = []
         token_exp2 = []
@@ -47,7 +50,7 @@ class ModelInterface:
                 token_exp2.append((tok, topk_tok.get(i, 0)))
             else:
                 token_exp1.append((tok, topk_tok.get(i, 0)))
-        return token_exp1, token_exp2, [0], [0]
+        return token_exp1, token_exp2, [0], [0], [0]
 
 
 def main():
@@ -71,6 +74,8 @@ def main():
                              step=500,
                              default=5000,
                              label='mask_n'),
+            gr.inputs.Slider(minimum=1, maximum=6, step=1, default=3,
+                             label='topk tokens'),
         ],
         outputs=[
             gr.outputs.Textbox(type="auto", label="prediction"),
