@@ -61,7 +61,6 @@ def main():
                             'mask_explain'
                         ])
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
-    parser.add_argument('--topk', type=int, default=5)
     parser.add_argument('--arch_int_topk', type=int, default=5)
     parser.add_argument('--format',
                         type=str,
@@ -129,7 +128,7 @@ def main():
     else:
         raise NotImplementedError
 
-    explanation_fname = f'explanations/{args.model_name}_{args.explainer}_{args.topk}_{args.mode}_BT={args.baseline_token}_{args.format}'
+    explanation_fname = f'explanations/{args.model_name}_{args.explainer}_{args.mode}_BT={args.baseline_token}'
 
     if args.do_cross_merge:
         explanation_fname += '_X'
@@ -149,18 +148,24 @@ def run(data, explainer, out_file, args, **explain_kwargs):
         explanation, tokens, pred = explainer.explain(premise, hypothesis,
                                                       **explain_kwargs)
 
-        topk_exp = [
+        sorted_exp = [
             k for k, v in sorted(explanation.items(), key=lambda x: x[1], reverse=True)
             if v > 0
-        ][:args.topk]
-        sep_position = tokens.index(explainer.tokenizer.sep_token)
+        ][:20]  # you will never need more than top 20 explanations anyway.
 
-        if args.format == 'token':
-            token_idx = set(chain.from_iterable(topk_exp))
-            token_idx = sorted(set([get_base_idx(tokens, idx) for idx in token_idx]))
+        sep_position = tokens.index(explainer.tokenizer.sep_token)
+        proc_exp = {}
+        for interaction, strength in sorted_exp:
+            proc_interaction = sorted(
+                set([get_base_idx(tokens, idx) for idx in interaction]))
+            if proc_interaction not in proc_exp:
+                proc_exp[proc_interaction] = strength
+
+        rationales = {}
+        for interaction, strength in proc_exp.items():
             pre_rat = []
             hyp_rat = []
-            for idx in token_idx:
+            for idx in interaction:
                 token = process_token(tokens, idx)
                 if token in string.punctuation:
                     continue
@@ -169,40 +174,12 @@ def run(data, explainer, out_file, args, **explain_kwargs):
                 if idx > sep_position and 'bert' in args.model_name:
                     hyp_rat.append(token)
                 elif idx > sep_position + 1 and 'roberta' in args.model_name:
-                    # TODO: why +1 ?
                     hyp_rat.append(token)
-
-            current_explanation = {
-                'pred_label': inv_label_map[pred],
-                'premise_rationales': pre_rat,
-                'hypothesis_rationales': hyp_rat,
-            }
-        elif args.format == 'interaction':
-            rationales = []
-            proc_interaction = set([
-                sorted(set([get_base_idx(tokens, idx)
-                            for idx in interaction]))
-                for interaction in topk_exp
-            ])
-            for interaction in proc_interaction:
-                pre_group = []
-                hyp_group = []
-                for idx in interaction:
-                    token = process_token(tokens, idx)
-                    if idx < sep_position:
-                        pre_group.append(token)
-                    if idx > sep_position and 'bert' in args.model_name:
-                        hyp_group.append(token)
-                    elif idx > sep_position + 1 and 'roberta' in args.model_name:
-                        hyp_group.append(token)
-                    rationales.append((pre_group, hyp_group))
-            current_explanation = {
-                'pred_label': inv_label_map[pred],
-                'pred_rationales': rationales,
-            }
-
-        else:
-            raise NotImplementedError
+            rationales[(tuple(pre_rat), tuple(hyp_rat))] = strength
+        current_explanation = {
+            'pred_label': inv_label_map[pred],
+            'pred_rationales': rationales,
+        }
 
         json.dump(current_explanation, out_file, indent=4)
         if i == len(data[0]) - 1:

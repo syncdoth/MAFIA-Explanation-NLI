@@ -75,8 +75,21 @@ def compute_f1(pred_rationale, gt_rationale):
     return prec, rec, f1
 
 
-def compute_token_f1_score(gt_rationale1, gt_rationale2, pred_rationale1,
-                           pred_rationale2):
+def compute_token_f1_score(gt_rationale1,
+                           gt_rationale2,
+                           pred_rationale1=None,
+                           pred_rationale2=None,
+                           pred_rationales=None,
+                           topk=5):
+    if pred_rationale1 is not None:
+        assert pred_rationale2 is not None
+    else:
+        assert pred_rationales is not None
+        topk_rationales = sorted(pred_rationales.items(),
+                                 key=lambda x: x[1],
+                                 reverse=True)[:topk]
+        pred_rationale1, pred_rationale2 = zip(*topk_rationales)
+
     p1, r1, f1_1 = compute_f1(pred_rationale1, gt_rationale1)
     p2, r2, f1_2 = compute_f1(pred_rationale2, gt_rationale2)
 
@@ -106,6 +119,11 @@ def interaction_f1(gt_rationales,
         ]
     pred_rationales: same format as gt_rationales.
     """
+    if isinstance(pred_rationales, dict):
+        sorted_rationales = sorted(pred_rationales.items(),
+                                   key=lambda x: x[1],
+                                   reverse=True)
+        pred_rationales, _ = zip(*sorted_rationales)
     precision = []
     for p in pred_rationales[:topk]:
         if skip_intra_rationale and (len(p[0]) == 0 or len(p[1]) == 0):
@@ -125,7 +143,6 @@ def interaction_f1(gt_rationales,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--model_name', type=str, default='bert-base')
     parser.add_argument('--data_root', type=str, default='data/e-SNLI')
     parser.add_argument('--mode', type=str, default='test', choices=['dev', 'test'])
@@ -140,6 +157,7 @@ def main():
     parser.add_argument('--do_cross_merge', action='store_true')
     parser.add_argument('--skip_neutral', action='store_true')
     parser.add_argument('--only_correct', action='store_true')
+    parser.add_argument('--old_format', action='store_true')
     parser.add_argument('--test_annotator', type=int, default=-1)
     args = parser.parse_args()
 
@@ -161,35 +179,36 @@ def main():
     if args.test_annotator > 0:
         args.only_correct = False
         explanation_fname = f'explanations/annotator{args.test_annotator}'
-    if args.metric == 'token_f1':
-        # load from explanations that have token rationales:
-        # format:
-        # {
-        #     "pred_label": "contradiction",
-        #     "premise_rationales": [
-        #         "choir",
-        #         "songs"
-        #     ],
-        #     "hypothesis_rationales": [
-        #         "has",
-        #         "cracks",
-        #         "the",
-        #         "ceiling"
-        #     ]
-        # }
-        explanation_fname += '_token'
+    if args.old_format:
+        if args.metric == 'token_f1':
+            # load from explanations that have token rationales:
+            # format:
+            # {
+            #     "pred_label": "contradiction",
+            #     "premise_rationales": [
+            #         "choir",
+            #         "songs"
+            #     ],
+            #     "hypothesis_rationales": [
+            #         "has",
+            #         "cracks",
+            #         "the",
+            #         "ceiling"
+            #     ]
+            # }
+            explanation_fname += '_token'
 
-    elif 'interaction_f1' in args.metric:
-        # load from explanation that have interaction rationales:
-        # format:
-        # {
-        #      "pred_label": "contradiction",
-        #      "pred_rationales": [
-        #           [("choir", "song"), ("ceiling")],
-        #           [("choir", "song"), ("cracks")]
-        #      ]
-        # }
-        explanation_fname += '_interaction'
+        elif 'interaction_f1' in args.metric:
+            # load from explanation that have interaction rationales:
+            # format:
+            # {
+            #      "pred_label": "contradiction",
+            #      "pred_rationales": [
+            #           [("choir", "song"), ("ceiling")],
+            #           [("choir", "song"), ("cracks")]
+            #      ]
+            # }
+            explanation_fname += '_interaction'
     if args.do_cross_merge:
         explanation_fname += '_X'
 
@@ -213,10 +232,19 @@ def run(data, explanations, args, verbose=False):
             if label != exp['pred_label']:
                 continue
         if args.metric == 'token_f1':
-            scores.append(
-                compute_token_f1_score(gt_rationale[0], gt_rationale[1],
-                                       exp['premise_rationales'],
-                                       exp['hypothesis_rationales']))
+            if 'pred_rationales' in exp:
+                scores.append(
+                    compute_token_f1_score(gt_rationale[0],
+                                           gt_rationale[1],
+                                           pred_rationales=exp['pred_rationales'],
+                                           topk=args.topk))
+            else:
+                scores.append(
+                    compute_token_f1_score(gt_rationale[0],
+                                           gt_rationale[1],
+                                           pred_rationale1=exp['premise_rationales'],
+                                           pred_rationale2=exp['hypothesis_rationales'],
+                                           topk=args.topk))
         elif 'interaction_f1' in args.metric:
             if len(gt_rationale) == 0:  # this might happen with vote
                 continue
