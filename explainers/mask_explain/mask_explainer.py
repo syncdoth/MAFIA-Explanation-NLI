@@ -37,9 +37,7 @@ class MaskExplainer(ExplainerInterface):
         random_mask = torch.rand(mask_n, sent_length) <= mask_p
 
         # set special tokens to 1, so they are not masked
-        random_mask[:, 0] = 1
-        random_mask[:, -1] = 1
-        random_mask[:, sep_idx] = 1
+        random_mask[:, [0, sep_idx, -1]] = 1
 
         processed_inputs = {}
         if self.attention_perturbation:
@@ -104,7 +102,8 @@ class MaskExplainer(ExplainerInterface):
                 interaction_order=(1,),
                 mask_p=0.5,
                 mask_n=1000,
-                inverse_mask=False):
+                inverse_mask=False,
+                no_correction=False):
         tokens = self.tokenizer.tokenize(premise,
                                          pair=hypothesis,
                                          add_special_tokens=True)
@@ -128,8 +127,11 @@ class MaskExplainer(ExplainerInterface):
         explanations = {}
         for order in interaction_order:
             if order == 1:
-                freq = mask.float().mean(0, keepdims=True)  # [T]
-                saliencies = (scores.unsqueeze(0) @ mask.float()) / freq  # [1, T]
+                saliencies = (scores.unsqueeze(0) @ mask.float())  # [1, T]
+                if not no_correction:
+                    freq = mask.float().mean(0, keepdims=True)  # [T]
+                    saliencies /= freq  # [1, T]
+
                 saliencies = saliencies.squeeze()
                 for i in valid_indices:
                     explanations[(i,)] = saliencies[i].item()
@@ -141,8 +143,11 @@ class MaskExplainer(ExplainerInterface):
                         continue
                     # 1 iff all indices are present
                     interaction_mask = torch.prod(mask[:, group].float(), dim=1)
-                    freq = interaction_mask.mean()
-                    explanations[group] = (interaction_mask @ scores / freq).item()
+                    if not no_correction:
+                        freq = interaction_mask.mean()
+                        explanations[group] = (interaction_mask @ scores / freq).item()
+                    else:
+                        explanations[group] = (interaction_mask @ scores).item()
 
         return explanations, tokens, pred_class
 

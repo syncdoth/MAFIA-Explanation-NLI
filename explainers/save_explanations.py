@@ -76,6 +76,7 @@ def main():
     parser.add_argument('--mask_p', type=float, default=0.5)
     parser.add_argument('--mask_n', type=int, default=10000)
     parser.add_argument('--inverse_mask', action='store_true')
+    parser.add_argument('--no_correction', action='store_true')
     args = parser.parse_args()
 
     data = load_df(args.data_root, mode=args.mode)
@@ -117,13 +118,14 @@ def main():
         explainer = MaskExplainer(args.model_name,
                                   device=device,
                                   baseline_token=args.baseline_token)
-        # TODO: make it not hard coded
         explain_kwargs = dict(batch_size=args.batch_size,
                               interaction_order=interaction_order,
                               mask_p=args.mask_p,
                               mask_n=args.mask_n,
-                              inverse_mask=args.inverse_mask)
+                              inverse_mask=args.inverse_mask,
+                              no_correction=args.no_correction)
         args.explainer = f'{args.explainer}-{args.interaction_order}-p{args.mask_p}-n{args.mask_n}-inv{int(args.inverse_mask)}'
+        args.explainer += 'noCorr' if args.no_correction else ''
     else:
         raise NotImplementedError
 
