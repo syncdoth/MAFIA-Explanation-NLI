@@ -1,11 +1,12 @@
 """
 Explain with random masking.
 """
+from math import prod
 import string
 import sys
 
 sys.path.insert(0, '/data/schoiaj/repos/nli_explain')
-from itertools import combinations
+from itertools import combinations, product
 
 import torch
 from tqdm import tqdm
@@ -135,21 +136,49 @@ class MaskExplainer(ExplainerInterface):
                 saliencies = saliencies.squeeze()
                 for i in valid_indices:
                     explanations[(i,)] = saliencies[i].item()
-            else:
-                feature_groups = combinations(valid_indices, order)
+            elif order == 2:
                 sep_idx = tokens.index(self.tokenizer.sep_token)
+                feature_groups = product(range(sep_idx), range(sep_idx + 1, len(tokens)))
                 for group in feature_groups:
-                    if not self.is_cross_group(group, sep_idx):
-                        continue
-                    # 1 iff all indices are present
-                    interaction_mask = torch.prod(mask[:, group].float(), dim=1)
-                    if not no_correction:
-                        freq = interaction_mask.mean()
-                        explanations[group] = (interaction_mask @ scores / freq).item()
+                    explanations[group] = self.group_attribution(
+                        group, scores, mask, no_correction=no_correction)
+            elif order == 3:
+                pre_groups = product(range(sep_idx), range(sep_idx))
+                hyp_groups = product(range(sep_idx + 1, len(tokens)),
+                                     range(sep_idx + 1, len(tokens)))
+                type1 = list(product(range(sep_idx), hyp_groups))  # 1 x 2
+                type2 = list(product(pre_groups, range(sep_idx + 1, len(tokens))))
+                feature_groups = type1 + type2
+                for group1, group2 in feature_groups:
+                    if isinstance(group1, int):
+                        group = (group1,) + group2
                     else:
-                        explanations[group] = (interaction_mask @ scores).item()
-
+                        group = group1 + (group2,)
+                    explanations[group] = self.group_attribution(
+                        group, scores, mask, no_correction=no_correction)
+            elif order == 4:
+                # NOTE: 2 x 2 only
+                pre_groups = product(range(sep_idx), range(sep_idx))
+                hyp_groups = product(range(sep_idx + 1, len(tokens)),
+                                     range(sep_idx + 1, len(tokens)))
+                feature_groups = product(pre_groups, hyp_groups)
+                for group1, group2 in feature_groups:
+                    group = group1 + group2
+                    explanations[group] = self.group_attribution(
+                        group, scores, mask, no_correction=no_correction)
+            else:
+                raise NotImplementedError("Too slow")
         return explanations, tokens, pred_class
+
+    def group_attribution(self, group, scores, mask, no_correction=False):
+        # 1 iff all indices are present
+        interaction_mask = torch.prod(mask[:, group].float(), dim=1)
+        if not no_correction:
+            freq = interaction_mask.mean()
+            group_attribution = (interaction_mask @ scores / freq).item()
+        else:
+            group_attribution = (interaction_mask @ scores).item()
+        return group_attribution
 
     def is_cross_group(self, group, sep_idx):
         group_tensor = torch.tensor(group)
