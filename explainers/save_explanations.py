@@ -65,10 +65,11 @@ def main():
     parser.add_argument('--do_cross_merge', action='store_true')
     # mask explainer args
     parser.add_argument('--interaction_order',
-                        type=str,
+                        type=int,
                         help='comma separated values',
                         default='1')
     parser.add_argument('--mask_p', type=float, default=0.5)
+    parser.add_argument('--buildup_p', type=float, default=0.5)
     parser.add_argument('--mask_n', type=int, default=10000)
     parser.add_argument('--inverse_mask', action='store_true')
     parser.add_argument('--no_correction', action='store_true')
@@ -106,7 +107,6 @@ def main():
                               do_cross_merge=args.do_cross_merge,
                               get_cross_effects=True)
     elif args.explainer == 'mask_explain':
-        interaction_order = tuple(map(int, args.interaction_order.split(',')))
         # NOTE: mask explainer works only with attention perturbations
         if 'attention' not in args.baseline_token:
             args.baseline_token = f'attention+{args.baseline_token}'
@@ -114,13 +114,14 @@ def main():
                                   device=device,
                                   baseline_token=args.baseline_token)
         explain_kwargs = dict(batch_size=args.batch_size,
-                              interaction_order=interaction_order,
+                              interaction_order=args.interaction_order,
                               mask_p=args.mask_p,
                               mask_n=args.mask_n,
                               inverse_mask=args.inverse_mask,
-                              no_correction=args.no_correction)
-        args.explainer = f'{args.explainer}-{args.interaction_order}-p{args.mask_p}-n{args.mask_n}-inv{int(args.inverse_mask)}'
-        args.explainer += 'noCorr' if args.no_correction else ''
+                              no_correction=args.no_correction,
+                              top_p=args.buildup_p)
+        args.explainer = f'{args.explainer}-{args.interaction_order}-p{args.mask_p}-n{args.mask_n}-inv{int(args.inverse_mask)}-buildup{args.buildup_p}'
+        args.explainer += '_noCorr' if args.no_correction else ''
     else:
         raise NotImplementedError
 

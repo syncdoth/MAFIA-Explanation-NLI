@@ -5,7 +5,7 @@ import string
 import sys
 
 sys.path.insert(0, '/data/schoiaj/repos/nli_explain')
-from itertools import combinations
+from itertools import combinations, product
 
 import torch
 from tqdm import tqdm
@@ -37,7 +37,7 @@ class MaskExplainer(ExplainerInterface):
         random_mask = torch.rand(mask_n, sent_length) <= mask_p
 
         # set special tokens to 1, so they are not masked
-        random_mask[:, [0, sep_idx, -1]] = 1
+        random_mask[:, [0, sep_idx[0].item(), -1]] = 1
 
         processed_inputs = {}
         if self.attention_perturbation:
@@ -99,11 +99,13 @@ class MaskExplainer(ExplainerInterface):
                 hypothesis,
                 batch_size=32,
                 target_class=None,
-                interaction_order=(1,),
+                interaction_order=1,
+                top_p=0.5,
                 mask_p=0.5,
                 mask_n=1000,
                 inverse_mask=False,
                 no_correction=False):
+        assert interaction_order <= 6, 'interaction order > 6 is too slow.'
         tokens = self.tokenizer.tokenize(premise,
                                          pair=hypothesis,
                                          add_special_tokens=True)
@@ -122,35 +124,54 @@ class MaskExplainer(ExplainerInterface):
 
         skip_indices.update(
             [i for i, tok in enumerate(tokens) if tok in string.punctuation])
-        valid_indices = set(range(mask.shape[1])) - skip_indices
+        valid_indices = sorted(set(range(mask.shape[1])) - skip_indices)
 
         explanations = {}
-        for order in interaction_order:
-            if order == 1:
-                saliencies = (scores.unsqueeze(0) @ mask.float())  # [1, T]
-                if not no_correction:
-                    freq = mask.float().mean(0, keepdims=True)  # [T]
-                    saliencies /= freq  # [1, T]
+        if interaction_order == 1:
+            saliencies = (scores.unsqueeze(0) @ mask.float())  # [1, T]
+            if not no_correction:
+                freq = mask.float().mean(0, keepdims=True)  # [T]
+                saliencies /= freq  # [1, T]
 
-                saliencies = saliencies.squeeze()
-                for i in valid_indices:
-                    explanations[(i,)] = saliencies[i].item()
-            else:
-                feature_groups = combinations(valid_indices, order)
-                sep_idx = tokens.index(self.tokenizer.sep_token)
-                for group in feature_groups:
-                    if not self.is_cross_group(group, sep_idx):
-                        continue
-                    # 1 iff all indices are present
-                    interaction_mask = torch.prod(mask[:, group].float(), dim=1)
-                    if not no_correction:
-                        freq = interaction_mask.mean()
-                        explanations[group] = (interaction_mask @ scores / freq).item()
-                    else:
-                        explanations[group] = (interaction_mask @ scores).item()
+            saliencies = saliencies.squeeze()
+            for i in valid_indices:
+                explanations[(i,)] = saliencies[i].item()
+        elif interaction_order >= 2:
+            # pairwise
+            sep_idx = tokens.index(self.tokenizer.sep_token)
+            # only cross pairwise
+            sep_pos = -1
+            for i in valid_indices:
+                if i >= sep_idx:
+                    sep_pos = i
+                    break
+
+            feature_groups = product(valid_indices[:sep_pos], valid_indices[sep_pos:])
+            for group in feature_groups:
+                # 1 iff all indices are present
+                explanations[group] = self.group_attribution(group,
+                                                             scores,
+                                                             mask,
+                                                             no_correction=no_correction)
+            # higher order
+            for _ in range(interaction_order - 2):
+                top_p_prev_int = sorted(explanations.items(),
+                                        key=lambda x: x[1],
+                                        reverse=True)[:int(top_p * len(explanations))]
+                explanations = {}
+                for prev_group, _ in top_p_prev_int:
+                    for i in valid_indices:
+                        if i in prev_group:
+                            continue
+                        group = tuple(sorted(prev_group + (i,)))
+                        explanations[group] = self.group_attribution(
+                            group, scores, mask, no_correction=no_correction)
 
         return explanations, tokens, pred_class
 
-    def is_cross_group(self, group, sep_idx):
-        group_tensor = torch.tensor(group)
-        return not ((group_tensor < sep_idx).all() or (group_tensor > sep_idx).all())
+    def group_attribution(self, group, scores, mask, no_correction=False):
+        interaction_mask = torch.prod(mask[:, group].float(), dim=1)
+        if not no_correction:
+            freq = interaction_mask.mean()
+            return (interaction_mask @ scores / freq).item()
+        return (interaction_mask @ scores).item()
