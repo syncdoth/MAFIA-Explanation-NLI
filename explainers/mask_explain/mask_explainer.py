@@ -1,6 +1,7 @@
 """
 Explain with random masking.
 """
+from math import prod
 import string
 import sys
 
@@ -101,6 +102,7 @@ class MaskExplainer(ExplainerInterface):
                 target_class=None,
                 interaction_order=1,
                 top_p=0.5,
+                do_buildup=False,
                 mask_p=0.5,
                 mask_n=1000,
                 inverse_mask=False,
@@ -126,6 +128,19 @@ class MaskExplainer(ExplainerInterface):
             [i for i, tok in enumerate(tokens) if tok in string.punctuation])
         valid_indices = sorted(set(range(mask.shape[1])) - skip_indices)
 
+        if do_buildup:
+            explanations = self.buildup_higher_order(interaction_order, top_p,
+                                                     no_correction, tokens, scores, mask,
+                                                     valid_indices)
+        else:
+            explanations = self.fixed_size_higher_order(interaction_order, no_correction,
+                                                        tokens, scores, mask,
+                                                        valid_indices)
+
+        return explanations, tokens, pred_class
+
+    def buildup_higher_order(self, interaction_order, top_p, no_correction, tokens,
+                             scores, mask, valid_indices):
         explanations = {}
         if interaction_order == 1:
             saliencies = (scores.unsqueeze(0) @ mask.float())  # [1, T]
@@ -167,11 +182,61 @@ class MaskExplainer(ExplainerInterface):
                         explanations[group] = self.group_attribution(
                             group, scores, mask, no_correction=no_correction)
 
-        return explanations, tokens, pred_class
+        return explanations
+
+    def fixed_size_higher_order(self, interaction_order, no_correction, tokens, scores,
+                                mask, valid_indices):
+        explanations = {}
+        for order in interaction_order:
+            if order == 1:
+                saliencies = (scores.unsqueeze(0) @ mask.float())  # [1, T]
+                if not no_correction:
+                    freq = mask.float().mean(0, keepdims=True)  # [T]
+                    saliencies /= freq  # [1, T]
+
+                saliencies = saliencies.squeeze()
+                for i in valid_indices:
+                    explanations[(i,)] = saliencies[i].item()
+            elif order == 2:
+                sep_idx = tokens.index(self.tokenizer.sep_token)
+                feature_groups = product(range(sep_idx), range(sep_idx + 1, len(tokens)))
+                for group in feature_groups:
+                    explanations[group] = self.group_attribution(
+                        group, scores, mask, no_correction=no_correction)
+            elif order == 3:
+                pre_groups = product(range(sep_idx), range(sep_idx))
+                hyp_groups = product(range(sep_idx + 1, len(tokens)),
+                                     range(sep_idx + 1, len(tokens)))
+                type1 = list(product(range(sep_idx), hyp_groups))  # 1 x 2
+                type2 = list(product(pre_groups, range(sep_idx + 1, len(tokens))))
+                feature_groups = type1 + type2
+                for group1, group2 in feature_groups:
+                    if isinstance(group1, int):
+                        group = (group1,) + group2
+                    else:
+                        group = group1 + (group2,)
+                    explanations[group] = self.group_attribution(
+                        group, scores, mask, no_correction=no_correction)
+            elif order == 4:
+                # NOTE: 2 x 2 only
+                pre_groups = product(range(sep_idx), range(sep_idx))
+                hyp_groups = product(range(sep_idx + 1, len(tokens)),
+                                     range(sep_idx + 1, len(tokens)))
+                feature_groups = product(pre_groups, hyp_groups)
+                for group1, group2 in feature_groups:
+                    group = group1 + group2
+                    explanations[group] = self.group_attribution(
+                        group, scores, mask, no_correction=no_correction)
+            else:
+                raise NotImplementedError("Too slow")
+        return explanations
 
     def group_attribution(self, group, scores, mask, no_correction=False):
+        # 1 iff all indices are present
         interaction_mask = torch.prod(mask[:, group].float(), dim=1)
         if not no_correction:
             freq = interaction_mask.mean()
-            return (interaction_mask @ scores / freq).item()
-        return (interaction_mask @ scores).item()
+            group_attribution = (interaction_mask @ scores / freq).item()
+        else:
+            group_attribution = (interaction_mask @ scores).item()
+        return group_attribution
