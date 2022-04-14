@@ -145,15 +145,16 @@ def run(data, explainer, out_file, args, **explain_kwargs):
                                                       **explain_kwargs)
 
         sorted_exp = [
-            k for k, v in sorted(explanation.items(), key=lambda x: x[1], reverse=True)
+            (k, float(v))
+            for k, v in sorted(explanation.items(), key=lambda x: x[1], reverse=True)
             if v > 0
         ][:20]  # you will never need more than top 20 explanations anyway.
 
         sep_position = tokens.index(explainer.tokenizer.sep_token)
         proc_exp = {}
         for interaction, strength in sorted_exp:
-            proc_interaction = sorted(
-                set([get_base_idx(tokens, idx) for idx in interaction]))
+            proc_interaction = tuple(
+                sorted(set([get_base_idx(tokens, idx) for idx in interaction])))
             if proc_interaction not in proc_exp:
                 proc_exp[proc_interaction] = strength
 
@@ -171,7 +172,7 @@ def run(data, explainer, out_file, args, **explain_kwargs):
                     hyp_rat.append(token)
                 elif idx > sep_position + 1 and 'roberta' in args.model_name:
                     hyp_rat.append(token)
-            rationales[(tuple(pre_rat), tuple(hyp_rat))] = strength
+            rationales[str((tuple(pre_rat), tuple(hyp_rat)))] = strength
         current_explanation = {
             'pred_label': inv_label_map[pred],
             'pred_rationales': rationales,

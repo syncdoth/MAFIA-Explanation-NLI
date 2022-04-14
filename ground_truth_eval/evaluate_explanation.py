@@ -85,10 +85,16 @@ def compute_token_f1_score(gt_rationale1,
         assert pred_rationale2 is not None
     else:
         assert pred_rationales is not None
+        pred_rationales = {eval(k): v for k, v in pred_rationales.items()}
         topk_rationales = sorted(pred_rationales.items(),
                                  key=lambda x: x[1],
                                  reverse=True)[:topk]
-        pred_rationale1, pred_rationale2 = zip(*topk_rationales)
+        pred_rationale1, pred_rationale2 = set(), set()
+        for (g1, g2), _ in topk_rationales:
+            pred_rationale1.update(g1)
+            pred_rationale2.update(g2)
+
+        pred_rationale1, pred_rationale2 = list(pred_rationale1), list(pred_rationale2)
 
     p1, r1, f1_1 = compute_f1(pred_rationale1, gt_rationale1)
     p2, r2, f1_2 = compute_f1(pred_rationale2, gt_rationale2)
@@ -120,10 +126,11 @@ def interaction_f1(gt_rationales,
     pred_rationales: same format as gt_rationales.
     """
     if isinstance(pred_rationales, dict):
+        pred_rationales = {eval(k): v for k, v in pred_rationales.items()}
         sorted_rationales = sorted(pred_rationales.items(),
                                    key=lambda x: x[1],
                                    reverse=True)
-        pred_rationales, _ = zip(*sorted_rationales)
+        pred_rationales = [rationale for rationale, _ in sorted_rationales]
     precision = []
     for p in pred_rationales[:topk]:
         if skip_intra_rationale and (len(p[0]) == 0 or len(p[1]) == 0):
@@ -159,6 +166,7 @@ def main():
     parser.add_argument('--only_correct', action='store_true')
     parser.add_argument('--old_format', action='store_true')
     parser.add_argument('--test_annotator', type=int, default=-1)
+    parser.add_argument('--save_path', type=str, default='eval_results')
     args = parser.parse_args()
 
     config = load_pretrained_config(args.model_name)
@@ -297,11 +305,11 @@ def run(data, explanations, args, verbose=False):
         all_results = pd.DataFrame(
             scores, columns=[f'interaction_f1_top{k}' for k in range(1, args.topk + 1)])
 
-    save_name = f'eval_results/{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}_BT={args.baseline_token}'
+    save_name = f'{args.save_path}/{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}_BT={args.baseline_token}'
     print(save_name)
     print(results)
     if args.test_annotator > 0:
-        save_name = f'eval_results/annotator{args.test_annotator}_{args.metric}_{args.mode}_{args.how}'
+        save_name = f'{args.save_path}/annotator{args.test_annotator}_{args.metric}_{args.mode}_{args.how}'
 
     if args.do_cross_merge:
         save_name += '_X'
