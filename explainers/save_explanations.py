@@ -114,10 +114,7 @@ def main():
         explainer = MaskExplainer(args.model_name,
                                   device=device,
                                   baseline_token=args.baseline_token)
-        if args.do_buildup:
-            interaction_order = int(args.interaction_order)
-        else:
-            interaction_order = tuple(map(int, args.interaction_order.split(',')))
+        interaction_order = tuple(map(int, args.interaction_order.split(',')))
         explain_kwargs = dict(batch_size=args.batch_size,
                               interaction_order=interaction_order,
                               mask_p=args.mask_p,
@@ -126,8 +123,9 @@ def main():
                               no_correction=args.no_correction,
                               top_p=args.buildup_p,
                               do_buildup=args.do_buildup)
-        args.explainer = f'{args.explainer}-{args.interaction_order}-p{args.mask_p}-n{args.mask_n}-inv{int(args.inverse_mask)}-buildup{args.buildup_p}'
-        args.explainer += '_noCorr' if args.no_correction else ''
+        args.explainer = f'{args.explainer}-{args.interaction_order}-p{args.mask_p}-n{args.mask_n}-inv{int(args.inverse_mask)}'
+        args.explainer += f'-buildup{args.buildup_p}' if args.do_buildup else ''
+        args.explainer += '-noCorr' if args.no_correction else ''
     else:
         raise NotImplementedError
 

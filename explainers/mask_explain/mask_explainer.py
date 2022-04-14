@@ -107,7 +107,7 @@ class MaskExplainer(ExplainerInterface):
                 mask_n=1000,
                 inverse_mask=False,
                 no_correction=False):
-        assert interaction_order <= 6, 'interaction order > 6 is too slow.'
+        assert max(interaction_order) <= 6, 'interaction order > 6 is too slow.'
         tokens = self.tokenizer.tokenize(premise,
                                          pair=hypothesis,
                                          add_special_tokens=True)
@@ -129,6 +129,7 @@ class MaskExplainer(ExplainerInterface):
         valid_indices = sorted(set(range(mask.shape[1])) - skip_indices)
 
         if do_buildup:
+            interaction_order = interaction_order[0]
             explanations = self.buildup_higher_order(interaction_order, top_p,
                                                      no_correction, tokens, scores, mask,
                                                      valid_indices)
@@ -156,8 +157,8 @@ class MaskExplainer(ExplainerInterface):
             sep_idx = tokens.index(self.tokenizer.sep_token)
             # only cross pairwise
             sep_pos = -1
-            for i in valid_indices:
-                if i >= sep_idx:
+            for i, idx in enumerate(valid_indices):
+                if idx >= sep_idx:
                     sep_pos = i
                     break
 
@@ -187,6 +188,12 @@ class MaskExplainer(ExplainerInterface):
     def fixed_size_higher_order(self, interaction_order, no_correction, tokens, scores,
                                 mask, valid_indices):
         explanations = {}
+        sep_idx = tokens.index(self.tokenizer.sep_token)
+        sep_pos = -1
+        for i, idx in enumerate(valid_indices):
+            if idx >= sep_idx:
+                sep_pos = i
+                break
         for order in interaction_order:
             if order == 1:
                 saliencies = (scores.unsqueeze(0) @ mask.float())  # [1, T]
@@ -198,17 +205,15 @@ class MaskExplainer(ExplainerInterface):
                 for i in valid_indices:
                     explanations[(i,)] = saliencies[i].item()
             elif order == 2:
-                sep_idx = tokens.index(self.tokenizer.sep_token)
-                feature_groups = product(range(sep_idx), range(sep_idx + 1, len(tokens)))
+                feature_groups = product(valid_indices[:sep_pos], valid_indices[sep_pos:])
                 for group in feature_groups:
                     explanations[group] = self.group_attribution(
                         group, scores, mask, no_correction=no_correction)
             elif order == 3:
-                pre_groups = product(range(sep_idx), range(sep_idx))
-                hyp_groups = product(range(sep_idx + 1, len(tokens)),
-                                     range(sep_idx + 1, len(tokens)))
-                type1 = list(product(range(sep_idx), hyp_groups))  # 1 x 2
-                type2 = list(product(pre_groups, range(sep_idx + 1, len(tokens))))
+                pre_groups = product(valid_indices[:sep_pos], valid_indices[:sep_pos])
+                hyp_groups = product(valid_indices[sep_pos:], valid_indices[sep_pos:])
+                type1 = list(product(valid_indices[:sep_pos], hyp_groups))  # 1 x 2
+                type2 = list(product(pre_groups, valid_indices[sep_pos:]))
                 feature_groups = type1 + type2
                 for group1, group2 in feature_groups:
                     if isinstance(group1, int):
@@ -219,9 +224,8 @@ class MaskExplainer(ExplainerInterface):
                         group, scores, mask, no_correction=no_correction)
             elif order == 4:
                 # NOTE: 2 x 2 only
-                pre_groups = product(range(sep_idx), range(sep_idx))
-                hyp_groups = product(range(sep_idx + 1, len(tokens)),
-                                     range(sep_idx + 1, len(tokens)))
+                pre_groups = product(valid_indices[:sep_pos], valid_indices[:sep_pos])
+                hyp_groups = product(valid_indices[sep_pos:], valid_indices[sep_pos:])
                 feature_groups = product(pre_groups, hyp_groups)
                 for group1, group2 in feature_groups:
                     group = group1 + group2
