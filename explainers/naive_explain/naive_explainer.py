@@ -24,7 +24,7 @@ class NaiveExplainer(ExplainerInterface):
     def explain(self,
                 premise,
                 hypothesis,
-                target_class=None,
+                output_indices=None,
                 sent_k=None,
                 return_cache=False,
                 do_cross_merge=False):
@@ -40,8 +40,8 @@ class NaiveExplainer(ExplainerInterface):
         full_inp = self.tokenizer(premise, text_pair=hypothesis, return_tensors='pt')
         logits = torch.softmax(self.model(**full_inp.to(self.device)).logits[0], dim=-1)
         orig_confidence, pred_class = logits.max(-1)
-        if target_class is None:
-            target_class = pred_class.item()
+        if output_indices is None:
+            output_indices = pred_class.item()
         orig_confidence = orig_confidence.item()
 
         # perturb inputs
@@ -59,7 +59,7 @@ class NaiveExplainer(ExplainerInterface):
             for sent, _ in perturbed_premise:
                 inp = self.tokenizer(sent, text_pair=hypothesis, return_tensors='pt')
                 conf = torch.softmax(self.model(**inp.to(self.device)).logits[0],
-                                     dim=-1)[target_class].item()
+                                     dim=-1)[output_indices].item()
                 effect = orig_confidence - conf
                 pre_confidences.append(conf)
                 pre_effects.append(effect)
@@ -69,7 +69,7 @@ class NaiveExplainer(ExplainerInterface):
             for sent, _ in perturbed_hyp:
                 inp = self.tokenizer(premise, text_pair=sent, return_tensors='pt')
                 conf = torch.softmax(self.model(**inp.to(self.device)).logits[0],
-                                     dim=-1)[target_class].item()
+                                     dim=-1)[output_indices].item()
                 effect = orig_confidence - conf
                 hyp_confidences.append(conf)
                 hyp_effects.append(effect)
@@ -89,7 +89,7 @@ class NaiveExplainer(ExplainerInterface):
                                  text_pair=perturbed_hyp[pair[1]][0],
                                  return_tensors='pt')
             conf = torch.softmax(self.model(**inp.to(self.device)).logits[0],
-                                 dim=-1)[target_class].item()
+                                 dim=-1)[output_indices].item()
             if self.interaction_occlusion:
                 effect = orig_confidence - pre_confidences[pair[0]] - hyp_confidences[
                     pair[1]] + conf

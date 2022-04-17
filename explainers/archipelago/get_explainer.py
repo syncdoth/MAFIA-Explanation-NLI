@@ -52,7 +52,13 @@ class ArchExplainerInterface(ExplainerInterface):
         # if pairwise, we use archdetect only
         self.pairwise = True if 'pair' in explainer_class else False
 
-    def explain(self, premise, hypothesis, topk=5, batch_size=32, do_cross_merge=False):
+    def explain(self,
+                premise,
+                hypothesis,
+                topk=5,
+                batch_size=32,
+                do_cross_merge=False,
+                output_indices=None):
 
         text_inputs, baseline_ids = get_input_baseline_ids(premise,
                                                            self.baseline_token,
@@ -66,9 +72,11 @@ class ArchExplainerInterface(ExplainerInterface):
         # use predicted class to explain the model's decision
         pred = np.argmax(self.model_wrapper(**_text_inputs)[0])
 
+        if output_indices is None:
+            output_indices = pred
         apgo = self.explainer_class(self.model_wrapper,
                                     data_xformer=xf,
-                                    output_indices=pred,
+                                    output_indices=output_indices,
                                     batch_size=batch_size)
         # NOTE: here, topk means sth different
         explanation, _ = apgo.explain(top_k=topk,

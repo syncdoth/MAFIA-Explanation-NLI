@@ -99,7 +99,7 @@ class MaskExplainer(ExplainerInterface):
                 premise,
                 hypothesis,
                 batch_size=32,
-                target_class=None,
+                output_indices=None,
                 interaction_order=1,
                 top_p=0.5,
                 do_buildup=False,
@@ -111,12 +111,13 @@ class MaskExplainer(ExplainerInterface):
         tokens = self.tokenizer.tokenize(premise,
                                          pair=hypothesis,
                                          add_special_tokens=True)
-        scores, mask, pred_class, pred_score = self.get_scores(premise,
-                                                               hypothesis,
-                                                               batch_size=batch_size,
-                                                               target_class=target_class,
-                                                               mask_p=mask_p,
-                                                               mask_n=mask_n)
+        scores, mask, pred_class, pred_score = self.get_scores(
+            premise,
+            hypothesis,
+            batch_size=batch_size,
+            target_class=output_indices,
+            mask_p=mask_p,
+            mask_n=mask_n)
         if inverse_mask:
             mask = ~mask
             scores = pred_score - scores
@@ -143,6 +144,14 @@ class MaskExplainer(ExplainerInterface):
     def buildup_higher_order(self, interaction_order, top_p, no_correction, tokens,
                              scores, mask, valid_indices):
         explanations = {}
+        sep_idx = tokens.index(self.tokenizer.sep_token)
+        # only cross pairwise
+        sep_pos = -1
+        for i, idx in enumerate(valid_indices):
+            if idx >= sep_idx:
+                sep_pos = i
+                break
+
         if interaction_order == 1:
             saliencies = (scores.unsqueeze(0) @ mask.float())  # [1, T]
             if not no_correction:
@@ -152,16 +161,8 @@ class MaskExplainer(ExplainerInterface):
             saliencies = saliencies.squeeze()
             for i in valid_indices:
                 explanations[(i,)] = saliencies[i].item()
-        elif interaction_order >= 2:
+        elif interaction_order == 2:
             # pairwise
-            sep_idx = tokens.index(self.tokenizer.sep_token)
-            # only cross pairwise
-            sep_pos = -1
-            for i, idx in enumerate(valid_indices):
-                if idx >= sep_idx:
-                    sep_pos = i
-                    break
-
             feature_groups = product(valid_indices[:sep_pos], valid_indices[sep_pos:])
             for group in feature_groups:
                 # 1 iff all indices are present
@@ -169,8 +170,23 @@ class MaskExplainer(ExplainerInterface):
                                                              scores,
                                                              mask,
                                                              no_correction=no_correction)
+        elif interaction_order >= 3:
+            pre_groups = product(valid_indices[:sep_pos], valid_indices[:sep_pos])
+            hyp_groups = product(valid_indices[sep_pos:], valid_indices[sep_pos:])
+            type1 = list(product(valid_indices[:sep_pos], hyp_groups))  # 1 x 2
+            type2 = list(product(pre_groups, valid_indices[sep_pos:]))
+            feature_groups = type1 + type2
+            for group1, group2 in feature_groups:
+                if isinstance(group1, int):
+                    group = (group1,) + group2
+                else:
+                    group = group1 + (group2,)
+                explanations[group] = self.group_attribution(group,
+                                                             scores,
+                                                             mask,
+                                                             no_correction=no_correction)
             # higher order
-            for _ in range(interaction_order - 2):
+            for _ in range(interaction_order - 3):
                 top_p_prev_int = sorted(explanations.items(),
                                         key=lambda x: x[1],
                                         reverse=True)[:int(top_p * len(explanations))]
