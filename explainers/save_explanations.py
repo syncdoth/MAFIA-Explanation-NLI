@@ -13,6 +13,8 @@ from explainers.archipelago.get_explainer import ArchExplainerInterface
 from explainers.integrated_hessians.IH_explainer import IHBertExplainer
 from explainers.naive_explain.naive_explainer import NaiveExplainer
 from explainers.mask_explain.mask_explainer import MaskExplainer
+from explainers.lime_baseline import LimeExplainer
+from explainers.select_all_baseline import SelectAll
 from tqdm import tqdm
 from utils.data_utils import load_df
 
@@ -58,7 +60,7 @@ def main():
                         choices=[
                             'arch', 'cross_arch', 'arch_pair', 'cross_arch_pair',
                             'naive_occlusion', 'naive_interaction_occlusion', 'IH',
-                            'mask_explain'
+                            'mask_explain', 'lime', 'select_all'
                         ])
     parser.add_argument('--baseline_token', type=str, default='[MASK]')
     parser.add_argument('--arch_int_topk', type=int, default=5)
@@ -126,6 +128,15 @@ def main():
         args.explainer = f'{args.explainer}-{args.interaction_order}-p{args.mask_p}-n{args.mask_n}-inv{int(args.inverse_mask)}'
         args.explainer += f'-buildup{args.buildup_p}' if args.do_buildup else ''
         args.explainer += '-noCorr' if args.no_correction else ''
+    elif args.explainer == 'lime':
+        explainer = LimeExplainer(args.model_name,
+                                  device=device,
+                                  baseline_token=args.baseline_token)
+        explain_kwargs = dict(batch_size=args.batch_size, mask_n=args.mask_n)
+        args.explainer = f'{args.explainer}-{args.mask_n}'
+    elif args.explainer == 'select_all':
+        explainer = SelectAll(args.model_name)
+        explain_kwargs = {}
     else:
         raise NotImplementedError
 
