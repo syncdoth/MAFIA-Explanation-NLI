@@ -59,8 +59,14 @@ def find_common_tokens(pred, gt):
 
 def compute_f1(pred_rationale, gt_rationale):
     # if either the prediction or the truth is no-answer then f1 = 1 if they agree, 0 otherwise
-    if len(pred_rationale) == 0 or len(gt_rationale) == 0:
-        return [int(pred_rationale == gt_rationale)] * 3
+    if len(gt_rationale) == 0:
+        if len(pred_rationale) == 0:
+            return 1, 1, 1
+        return 0, 1, 0
+    if len(pred_rationale) == 0:
+        if len(gt_rationale) == 0:
+            return 1, 1, 1
+        return 0, 0, 0
 
     common_tokens = find_common_tokens(pred_rationale, gt_rationale)
 
@@ -229,10 +235,11 @@ def main():
 
 def run(data, explanations, args, verbose=False):
     scores = []
-    pbar = zip(*data, explanations)
+    indices = []
+    pbar = enumerate(zip(*data, explanations))
     if verbose:
         pbar = tqdm(pbar, total=len(explanations))
-    for gt_rationale, label, exp in pbar:
+    for i, (gt_rationale, label, exp) in pbar:
         if args.skip_neutral:
             if label == 'neutral':
                 continue
@@ -263,6 +270,7 @@ def run(data, explanations, args, verbose=False):
                                max_only='max' in args.metric,
                                topk=k) for k in range(1, args.topk + 1)
             ])
+            indices.append(i)
         else:
             raise NotImplementedError
 
@@ -303,7 +311,9 @@ def run(data, explanations, args, verbose=False):
     elif 'interaction_f1' in args.metric:
         results = pd.DataFrame(scores.mean(0), columns=[f'interaction_f1'])
         all_results = pd.DataFrame(
-            scores, columns=[f'interaction_f1_top{k}' for k in range(1, args.topk + 1)])
+            scores,
+            columns=[f'interaction_f1_top{k}' for k in range(1, args.topk + 1)],
+            index=indices)
 
     save_name = f'{args.save_path}/{args.model_name}_{args.explainer}_{args.metric}_{args.mode}_{args.how}_{args.topk}_BT={args.baseline_token}'
     print(save_name)
@@ -319,7 +329,7 @@ def run(data, explanations, args, verbose=False):
         save_name += '_only-correct'
     results.to_csv(f'{save_name}.csv', index=False)
     if 'interaction_f1' in args.metric:
-        all_results.to_csv(f'{save_name}_all.csv', index=False)
+        all_results.to_csv(f'{save_name}_all.csv')
 
 
 if __name__ == "__main__":
