@@ -6,3 +6,4 @@ eval_results/
 explanations/
 explainers/integrated_hessians/examples/
 explainers/integrated_hessians/benchmarking/
+other_models/
