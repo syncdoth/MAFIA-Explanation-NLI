@@ -100,7 +100,7 @@ class MaskExplainer(ExplainerInterface):
                 hypothesis,
                 batch_size=32,
                 output_indices=None,
-                interaction_order=1,
+                interaction_order=(1,),
                 top_p=0.5,
                 do_buildup=False,
                 mask_p=0.5,
