@@ -105,7 +105,10 @@ def compute_token_f1_score(gt_rationale1,
     p1, r1, f1_1 = compute_f1(pred_rationale1, gt_rationale1)
     p2, r2, f1_2 = compute_f1(pred_rationale2, gt_rationale2)
 
-    return [p1, r1, f1_1, p2, r2, f1_2]
+    p3, r3, f3_3 = compute_f1(pred_rationale1 + pred_rationale2,
+                              gt_rationale1 + gt_rationale2)
+
+    return [p1, r1, f1_1, p2, r2, f1_2, p3, r3, f3_3]
 
 
 def jaccard_sim(first, second):
@@ -248,18 +251,20 @@ def run(data, explanations, args, verbose=False):
                 continue
         if args.metric == 'token_f1':
             if 'pred_rationales' in exp:
-                scores.append(
+                scores.append([
                     compute_token_f1_score(gt_rationale[0],
                                            gt_rationale[1],
                                            pred_rationales=exp['pred_rationales'],
-                                           topk=args.topk))
+                                           topk=k) for k in range(1, args.topk + 1)
+                ])
             else:
-                scores.append(
+                scores.append([
                     compute_token_f1_score(gt_rationale[0],
                                            gt_rationale[1],
                                            pred_rationale1=exp['premise_rationales'],
                                            pred_rationale2=exp['hypothesis_rationales'],
-                                           topk=args.topk))
+                                           topk=k) for k in range(1, args.topk + 1)
+                ])
         elif 'interaction_f1' in args.metric:
             if len(gt_rationale) == 0:  # this might happen with vote
                 continue
@@ -277,37 +282,25 @@ def run(data, explanations, args, verbose=False):
     scores = np.array(scores)
 
     if args.metric == 'token_f1':
+        p_at_1 = scores[:, 0, [0, 3, 6]].mean(0) * 100  # [3,]
+        map_scores = scores[:, :, [0, 3, 6]].mean(0).mean(0) * 100  # [3,]
+        mean_scores = scores.mean(0) * 100  # [k, 9]
 
-        premise_precision = scores[:, 0].mean() * 100
-        premise_recall = scores[:, 1].mean() * 100
-        premise_f1 = scores[:, 2].mean() * 100
-        hypothesis_precision = scores[:, 3].mean() * 100
-        hypothesis_recall = scores[:, 4].mean() * 100
-        hypothesis_f1 = scores[:, 5].mean() * 100
+        p_at_1 = np.pad(p_at_1[None, :], [[0, args.topk - 1], [0, 0]])  # [k, 3]
+        map_scores = np.pad(map_scores[None, :], [[0, args.topk - 1], [0, 0]])  # [k, 3]
 
-        print('premise:')
-        print('\tprecision\trecall\tf1')
-        print(f'\t{premise_precision:.2f}\t{premise_recall:.2f}\t{premise_f1:.2f}')
-        print()
-        print('hypothesis:')
-        print('\tprecision\trecall\tf1')
-        print(
-            f'\t{hypothesis_precision:.2f}\t{hypothesis_recall:.2f}\t{hypothesis_f1:.2f}')
+        all_scores = np.concatenate([mean_scores, p_at_1, map_scores], axis=1)  # [k, 15]
 
-        results = pd.DataFrame({
-            'precision': {
-                'premise': premise_precision,
-                'hypothesis': hypothesis_precision,
-            },
-            'recall': {
-                'premise': premise_recall,
-                'hypothesis': hypothesis_recall,
-            },
-            'f1': {
-                'premise': premise_f1,
-                'hypothesis': hypothesis_f1,
-            },
-        })
+        results = pd.DataFrame(
+            all_scores,
+            columns=[
+                f'{t}_{metric}' for t in ['premise', 'hypothesis', 'total']
+                for metric in ['precision', 'recall', 'f1']
+            ] + [
+                f'{t}_{metric}' for t in ['p@1', 'map']
+                for metric in ['premise', 'hypothesis', 'total']
+            ],
+            index=range(1, args.topk + 1))
     elif 'interaction_f1' in args.metric:
         results = pd.DataFrame(scores.mean(0), columns=[f'interaction_f1'])
         all_results = pd.DataFrame(
