@@ -44,6 +44,10 @@ class ModelInterface:
         for i in no_attrib_idx:
             topk_explanations[(i,)] = 0
 
+        tokens[0] = ''
+        tokens[-1] = ''
+        tokens = [tok if tok != '[SEP]' else '->' for tok in tokens]
+
         fig = viz_text(topk_explanations, tokens, fontsize=12)
 
         return pred_label, fig
