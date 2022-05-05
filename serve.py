@@ -1,7 +1,9 @@
 import argparse
+from itertools import chain
 
 import gradio as gr
 from explainers.mask_explain.mask_explainer import MaskExplainer
+from explainers.archipelago.viz.text import viz_text
 
 
 class ModelInterface:
@@ -14,23 +16,37 @@ class ModelInterface:
         self.explanations = None
         self.tokens = None
 
-    def infer(self, sent1, sent2, mask_p, mask_n, topk):
-        del topk  # unused
-        explanations, tokens, pred_class = self.explainer.explain(sent1,
-                                                                  sent2,
-                                                                  batch_size=32,
-                                                                  target_class=None,
-                                                                  interaction_order=(1,),
-                                                                  mask_p=mask_p,
-                                                                  mask_n=mask_n,
-                                                                  inverse_mask=False)
+    def infer(self, sent1, sent2, mask_p, mask_n, order, topk):
+        explanations, tokens, pred_class = self.explainer.explain(
+            sent1,
+            sent2,
+            batch_size=32,
+            output_indices=None,
+            interaction_order=(order,),
+            top_p=0.3,
+            do_buildup=True,
+            mask_p=mask_p,
+            mask_n=mask_n,
+            inverse_mask=False)
         inv_label_map = self.explainer.get_label_map(inv=True)
         pred_label = inv_label_map[pred_class]
 
         self.explanations = explanations
         self.tokens = tokens
 
-        return pred_label
+        topk_explanations = {
+            k: v for k, v in sorted(
+                explanations.items(), key=lambda x: x[1], reverse=True)[:topk]
+        }
+
+        no_attrib_idx = set(range(len(tokens))) - set(
+            chain.from_iterable(topk_explanations.keys()))
+        for i in no_attrib_idx:
+            topk_explanations[(i,)] = 0
+
+        fig = viz_text(topk_explanations, tokens, fontsize=12)
+
+        return pred_label, fig
 
     def interpret(self, *args):
         topk = args[-1]
@@ -50,7 +66,7 @@ class ModelInterface:
                 token_exp2.append((tok, topk_tok.get(i, 0)))
             else:
                 token_exp1.append((tok, topk_tok.get(i, 0)))
-        return token_exp1, token_exp2, [0], [0], [0]
+        return token_exp1, token_exp2, [0], [0], [0], [0]
 
 
 def main():
@@ -74,15 +90,24 @@ def main():
                              step=500,
                              default=5000,
                              label='mask_n'),
-            gr.inputs.Slider(minimum=1, maximum=6, step=1, default=3,
-                             label='topk tokens'),
+            gr.inputs.Slider(minimum=1,
+                             maximum=6,
+                             step=1,
+                             default=1,
+                             label='interaction order'),
+            gr.inputs.Slider(minimum=1,
+                             maximum=6,
+                             step=1,
+                             default=3,
+                             label='topk rationales'),
         ],
         outputs=[
             gr.outputs.Textbox(type="auto", label="prediction"),
+            gr.outputs.Image(type="plot", label="explanation"),
         ],
         title='NLI Explainer demo',
         theme='peach',
-        interpretation=model.interpret,
+        # interpretation=model.interpret,  # TODO: make use of this
     )
     iface.launch(server_name="0.0.0.0")
 
