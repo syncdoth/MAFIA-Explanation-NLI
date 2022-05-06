@@ -1,13 +1,12 @@
 """
 Explain with random masking.
 """
-from math import prod
 import string
 import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__name__), '..', '..'))
-from itertools import combinations, product
+from itertools import product
 
 import torch
 from tqdm import tqdm
