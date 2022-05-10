@@ -109,7 +109,7 @@ def main():
             gr.outputs.Textbox(type="auto", label="prediction"),
             gr.outputs.Image(type="plot", label="explanation"),
         ],
-        title='NLI Explainer demo',
+        title='MAFIA NLI Explainer demo',
         theme='peach',
         # interpretation=model.interpret,  # TODO: make use of this
     )
